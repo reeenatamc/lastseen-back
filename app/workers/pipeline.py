@@ -1,5 +1,6 @@
 import app.models  # noqa: F401 — ensure all mappers are registered before any query
 from app.analyzers.base import BaseAnalyzer
+from app.analyzers.sentiment import SentimentAnalyzer
 from app.analyzers.temporal import TemporalAnalyzer
 from app.parsers.base import BaseParser, ParsedChat
 from app.parsers.imessage import IMessageParser
@@ -14,6 +15,7 @@ _PARSERS: list[BaseParser] = [
 
 _ANALYZERS: list[BaseAnalyzer] = [
     TemporalAnalyzer(),
+    SentimentAnalyzer(),
 ]
 
 

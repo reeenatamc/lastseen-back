@@ -21,6 +21,11 @@ redis==5.1.1
 python-jose[cryptography]==3.3.0
 bcrypt==4.2.1
 
+# ML — sentiment analysis (install torch CPU build on non-GPU servers)
+transformers==4.44.2
+torch==2.2.2
+numpy<2
+
 # Testing
 pytest==8.3.3
 pytest-asyncio==0.24.0
