@@ -20,7 +20,6 @@
 
 [![Status](https://img.shields.io/badge/–%20in%20development%20–-000000?style=for-the-badge)](.)
 [![Made with](https://img.shields.io/badge/Next.js%20+%20FastAPI-000000?style=for-the-badge&logo=nextdotjs&logoColor=white)](.)
-[![AI](https://img.shields.io/badge/Powered%20by%20Claude-000000?style=for-the-badge)](.)
 
 </div>
 
