@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     CELERY_RESULT_BACKEND: str = "redis://localhost:6380/0"
 
     ANTHROPIC_API_KEY: str | None = None
+    NARRATIVE_MODEL: str = "claude-haiku-4-5"
 
     SECRET_KEY: str
     ALGORITHM: str = "HS256"

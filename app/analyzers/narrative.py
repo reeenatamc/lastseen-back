@@ -94,7 +94,7 @@ class NarrativeAnalyzer(BaseAnalyzer):
 
         try:
             payload = _build_payload(chat, context)
-            narrative = _call_claude(payload, settings.ANTHROPIC_API_KEY)
+            narrative = _call_claude(payload, settings.ANTHROPIC_API_KEY, settings.NARRATIVE_MODEL)
             return AnalysisResult(analyzer=self.name, data=narrative)
         except Exception as exc:
             return AnalysisResult(analyzer=self.name, data={"error": str(exc)})
@@ -170,7 +170,7 @@ def _build_payload(chat: ParsedChat, context: dict) -> dict:
 
 # ── Claude API call ───────────────────────────────────────────────────────────
 
-def _call_claude(payload: dict, api_key: str) -> dict:
+def _call_claude(payload: dict, api_key: str, model: str) -> dict:
     client = anthropic.Anthropic(api_key=api_key)
 
     user_content = (
@@ -179,9 +179,8 @@ def _call_claude(payload: dict, api_key: str) -> dict:
     )
 
     response = client.messages.create(
-        model="claude-opus-4-7",
+        model=model,
         max_tokens=2048,
-        thinking={"type": "adaptive"},
         system=[
             {
                 "type": "text",
@@ -194,7 +193,6 @@ def _call_claude(payload: dict, api_key: str) -> dict:
                 "type": "json_schema",
                 "schema": _NARRATIVE_SCHEMA,
             },
-            "effort": "high",
         },
         messages=[{"role": "user", "content": user_content}],
     )
