@@ -13,6 +13,8 @@ class Settings(BaseSettings):
     CELERY_BROKER_URL: str = "redis://localhost:6380/0"
     CELERY_RESULT_BACKEND: str = "redis://localhost:6380/0"
 
+    ANTHROPIC_API_KEY: str | None = None
+
     SECRET_KEY: str
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30

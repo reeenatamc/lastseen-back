@@ -29,7 +29,7 @@ _TOP_GAPS = 5
 class TemporalAnalyzer(BaseAnalyzer):
     name = "temporal"
 
-    def analyze(self, chat: ParsedChat) -> AnalysisResult:
+    def analyze(self, chat: ParsedChat, context: dict | None = None) -> AnalysisResult:
         msgs = chat.messages
         if len(msgs) < 2:
             return AnalysisResult(analyzer=self.name, data={"error": "insufficient_data"})

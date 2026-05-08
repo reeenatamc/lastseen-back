@@ -1,5 +1,6 @@
 import app.models  # noqa: F401 — ensure all mappers are registered before any query
 from app.analyzers.base import BaseAnalyzer
+from app.analyzers.narrative import NarrativeAnalyzer
 from app.analyzers.sentiment import SentimentAnalyzer
 from app.analyzers.temporal import TemporalAnalyzer
 from app.parsers.base import BaseParser, ParsedChat
@@ -13,9 +14,12 @@ _PARSERS: list[BaseParser] = [
     IMessageParser(),
 ]
 
+# Analyzers run in order; each receives the accumulated results of all
+# prior analyzers via `context` so later ones can build on earlier work.
 _ANALYZERS: list[BaseAnalyzer] = [
     TemporalAnalyzer(),
     SentimentAnalyzer(),
+    NarrativeAnalyzer(),
 ]
 
 
@@ -35,7 +39,7 @@ def run_pipeline(*, analysis_id: int | None, content: str, platform: str) -> dic
 
     results: dict = {}
     for analyzer in _ANALYZERS:
-        result = analyzer.analyze(parsed_chat)
+        result = analyzer.analyze(parsed_chat, context=results)
         results[result.analyzer] = result.data
 
     if analysis_id is not None:

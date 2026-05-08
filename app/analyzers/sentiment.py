@@ -46,7 +46,7 @@ def _get_pipe():
 class SentimentAnalyzer(BaseAnalyzer):
     name = "sentiment"
 
-    def analyze(self, chat: ParsedChat) -> AnalysisResult:
+    def analyze(self, chat: ParsedChat, context: dict | None = None) -> AnalysisResult:
         text_msgs = [m for m in chat.messages if not m.is_media and m.content.strip()]
         if len(text_msgs) < 5:
             return AnalysisResult(analyzer=self.name, data={"error": "insufficient_data"})

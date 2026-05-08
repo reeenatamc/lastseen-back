@@ -15,5 +15,11 @@ class BaseAnalyzer(ABC):
     name: str = ""
 
     @abstractmethod
-    def analyze(self, chat: ParsedChat) -> AnalysisResult:
-        """Run analysis on a parsed chat and return structured results."""
+    def analyze(self, chat: ParsedChat, context: dict | None = None) -> AnalysisResult:
+        """
+        Run analysis on a parsed chat and return structured results.
+
+        `context` carries the accumulated results of analyzers that ran before
+        this one in the pipeline. Use it to build on prior work without
+        re-processing the chat (e.g. NarrativeAnalyzer reads temporal + sentiment).
+        """

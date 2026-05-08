@@ -21,6 +21,9 @@ redis==5.1.1
 python-jose[cryptography]==3.3.0
 bcrypt==4.2.1
 
+# Claude API — narrative generation
+anthropic>=0.34.0
+
 # ML — sentiment analysis (install torch CPU build on non-GPU servers)
 transformers==4.44.2
 torch==2.2.2
