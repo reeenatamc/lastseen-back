@@ -28,6 +28,15 @@ class AnalysisDetail(AnalysisSummary):
     updated_at: datetime
 
 
+class AnalysisStatusResponse(BaseModel):
+    id: int
+    status: AnalysisStatus
+    error: str | None
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
 # --- Endpoints ---
 
 @router.get("/", response_model=list[AnalysisSummary])
@@ -42,6 +51,20 @@ async def list_analyses(db: DB, user_id: CurrentUserId):
 
 @router.get("/{analysis_id}", response_model=AnalysisDetail)
 async def get_analysis(analysis_id: int, db: DB, user_id: CurrentUserId):
+    result = await db.execute(
+        select(Analysis).where(
+            Analysis.id == analysis_id,
+            Analysis.user_id == user_id,
+        )
+    )
+    analysis = result.scalar_one_or_none()
+    if analysis is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Analysis not found")
+    return analysis
+
+
+@router.get("/{analysis_id}/status", response_model=AnalysisStatusResponse)
+async def get_analysis_status(analysis_id: int, db: DB, user_id: CurrentUserId):
     result = await db.execute(
         select(Analysis).where(
             Analysis.id == analysis_id,
