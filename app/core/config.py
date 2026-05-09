@@ -16,6 +16,9 @@ class Settings(BaseSettings):
     ANTHROPIC_API_KEY: str | None = None
     NARRATIVE_MODEL: str = "claude-haiku-4-5"
 
+    GEMINI_API_KEY: str | None = None
+    GEMINI_MODEL: str = "gemini-2.5-flash-preview-05-20"
+
     ADMIN_USERNAME: str = "admin"
     ADMIN_PASSWORD: str = "changeme"
 

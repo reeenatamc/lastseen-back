@@ -86,15 +86,23 @@ class NarrativeAnalyzer(BaseAnalyzer):
     def analyze(self, chat: ParsedChat, context: dict | None = None) -> AnalysisResult:
         from app.core.config import settings
 
-        if not settings.ANTHROPIC_API_KEY:
-            return AnalysisResult(analyzer=self.name, data={"error": "not_configured"})
-
         if not context:
             return AnalysisResult(analyzer=self.name, data={"error": "insufficient_context"})
 
+        # Provider selection: Claude first, Gemini as fallback, error if neither
+        if settings.ANTHROPIC_API_KEY:
+            provider = "claude"
+        elif settings.GEMINI_API_KEY:
+            provider = "gemini"
+        else:
+            return AnalysisResult(analyzer=self.name, data={"error": "not_configured"})
+
         try:
             payload = _build_payload(chat, context)
-            narrative = _call_claude(payload, settings.ANTHROPIC_API_KEY, settings.NARRATIVE_MODEL)
+            if provider == "claude":
+                narrative = _call_claude(payload, settings.ANTHROPIC_API_KEY, settings.NARRATIVE_MODEL)
+            else:
+                narrative = _call_gemini(payload, settings.GEMINI_API_KEY, settings.GEMINI_MODEL)
             return AnalysisResult(analyzer=self.name, data=narrative)
         except Exception as exc:
             return AnalysisResult(analyzer=self.name, data={"error": str(exc)})
@@ -199,6 +207,42 @@ def _call_claude(payload: dict, api_key: str, model: str) -> dict:
 
     text = next(b.text for b in response.content if b.type == "text")
     return json.loads(text)
+
+
+# ── Gemini API call ───────────────────────────────────────────────────────────
+
+def _call_gemini(payload: dict, api_key: str, model: str) -> dict:
+    from google import genai
+    from google.genai import types
+
+    client = genai.Client(api_key=api_key)
+
+    prompt = (
+        _SYSTEM_PROMPT
+        + "\n\nAnaliza estas métricas y genera la narrativa emocional:\n\n"
+        + json.dumps(payload, ensure_ascii=False, indent=2)
+    )
+
+    response = client.models.generate_content(
+        model=model,
+        contents=prompt,
+        config=types.GenerateContentConfig(
+            response_mime_type="application/json",
+            response_schema={
+                "type": "object",
+                "properties": {
+                    "resumen":           {"type": "string"},
+                    "dinamica":          {"type": "string"},
+                    "punto_de_quiebre":  {"type": "string", "nullable": True},
+                    "estado_actual":     {"type": "string"},
+                    "reflexion":         {"type": "string"},
+                },
+                "required": ["resumen", "dinamica", "punto_de_quiebre", "estado_actual", "reflexion"],
+            },
+        ),
+    )
+
+    return json.loads(response.text)
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
