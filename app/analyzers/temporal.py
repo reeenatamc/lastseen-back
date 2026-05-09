@@ -44,6 +44,7 @@ class TemporalAnalyzer(BaseAnalyzer):
                 "conversation_gaps": _conversation_gaps(msgs),
                 "message_length": _message_length(msgs),
                 "response_decay": _response_decay(msgs),
+                "delayed_replies": _delayed_replies(msgs),
             },
         )
 
@@ -370,6 +371,51 @@ def _response_decay(msgs: list[ParsedMessage]) -> dict:
         "decay_score": max(0.0, min(1.0, decay_score)),
         "turning_point": turning_point,
         "evolution": evolution,
+    }
+
+
+def _delayed_replies(
+    msgs: list[ParsedMessage],
+    threshold_hours: float = 3.0,
+) -> dict:
+    """
+    Counts how many times each person made the other wait more than
+    threshold_hours before responding.
+
+    Unit of measurement: one conversational TURN (consecutive messages from
+    the same sender). If Person B takes > threshold_hours to respond to
+    Person A's turn, that's one count for B — regardless of how many
+    individual messages A sent in that turn.
+    """
+    threshold_secs = threshold_hours * 3600
+    delayed: dict[str, int] = defaultdict(int)
+
+    i = 0
+    while i < len(msgs):
+        sender = msgs[i].sender
+        # Advance to end of this turn
+        j = i + 1
+        while j < len(msgs) and msgs[j].sender == sender:
+            j += 1
+
+        turn_end = msgs[j - 1]
+
+        # Check if the next turn from the other person is > threshold away
+        if j < len(msgs):
+            gap_secs = (msgs[j].timestamp - turn_end.timestamp).total_seconds()
+            if gap_secs > threshold_secs:
+                delayed[msgs[j].sender] += 1
+
+        i = j
+
+    total = sum(delayed.values())
+    return {
+        "per_person": dict(delayed),
+        "share": {
+            p: round(c / total, 3) for p, c in delayed.items()
+        } if total else {},
+        "total": total,
+        "threshold_hours": threshold_hours,
     }
 
 
