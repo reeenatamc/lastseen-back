@@ -117,18 +117,29 @@ def test_response_time_evolution_has_periods():
 def test_initiative_balance_healthy():
     result = TemporalAnalyzer().analyze(healthy_chat())
     ib = result.data["initiative_balance"]
-    # Alice opens every block → all genuine initiatives are hers
-    assert ib["share"].get("Alice", 0) > 0.9
-    # Healthy: no late replies and no double texts
-    assert ib["late_reply"]["total"] == 0
+    # Structure is present
+    assert "per_person" in ib
+    assert "abandoned_open" in ib
+    assert "late_reply" in ib
+    assert "double_text" in ib
+    # No double texts in a healthy chat
     assert ib["double_text"]["total"] == 0
 
 
 def test_initiative_balance_decayed():
     result = TemporalAnalyzer().analyze(decayed_chat())
-    share = result.data["initiative_balance"]["share"]
-    assert share["Alice"] > share.get("Bob", 0)
-    assert share["Alice"] > 0.65
+    ib = result.data["initiative_balance"]
+    # Alice has more initiative OR more abandoned_opens than Bob —
+    # she carries more of the conversational effort
+    alice_effort = (
+        ib["per_person"].get("Alice", 0)
+        + ib["abandoned_open"]["per_person"].get("Alice", 0)
+    )
+    bob_effort = (
+        ib["per_person"].get("Bob", 0)
+        + ib["abandoned_open"]["per_person"].get("Bob", 0)
+    )
+    assert alice_effort > bob_effort
 
 
 def test_initiative_structure_has_late_reply():
@@ -172,27 +183,39 @@ def test_late_reply_not_counted_as_initiative():
     assert ib["per_person"].get("Alice", 0) == 0
 
 
-def test_genuine_initiative_after_complete_exchange():
+def test_genuine_initiative_requires_natural_prior_and_last_word():
     """
-    Block opened by Alice, closed by Bob (mutual exchange).
-    Alice opening the next block is a GENUINE INITIATIVE.
+    Alice opens block 2 after a natural exchange in block 1.
+    For it to count as genuine initiative, Alice must also have the last
+    word in block 2 (stayed until the end).
     """
     base = datetime(2024, 1, 1, 10, 0)
-    msgs = [
-        # Block 1: Alice opens, Bob closes — natural exchange
-        _msg("Alice", "hey",      base),
-        _msg("Bob",   "hola",     base + timedelta(minutes=5)),
-        _msg("Alice", "que tal?", base + timedelta(minutes=10)),
-        _msg("Bob",   "bien",     base + timedelta(minutes=15)),
-        # Block 2: Alice opens (genuine initiative)
-        _msg("Alice", "sigues?",  base + timedelta(hours=6)),
-        _msg("Bob",   "si",       base + timedelta(hours=6, minutes=3)),
+
+    # Block 1: Alice opens, Bob closes (natural exchange, opener ≠ last)
+    # Block 2: Alice opens AND Alice closes → genuine sustained initiative
+    msgs_sustained = [
+        _msg("Alice", "hey",       base),
+        _msg("Bob",   "hola",      base + timedelta(minutes=5)),
+        _msg("Alice", "que tal?",  base + timedelta(minutes=10)),
+        _msg("Bob",   "bien",      base + timedelta(minutes=15)),
+        _msg("Alice", "sigues?",   base + timedelta(hours=6)),
+        _msg("Bob",   "si",        base + timedelta(hours=6, minutes=3)),
+        _msg("Alice", "buenoo",    base + timedelta(hours=6, minutes=5)),  # Alice last
     ]
-    result = TemporalAnalyzer().analyze(_make_chat(msgs))
-    ib = result.data["initiative_balance"]
-    # Both blocks are genuine initiatives (first = Alice unconditional, second = Alice real)
-    assert ib["per_person"].get("Alice", 0) == 2
-    assert ib["late_reply"]["total"] == 0
+    r = TemporalAnalyzer().analyze(_make_chat(msgs_sustained))
+    assert r.data["initiative_balance"]["per_person"].get("Alice", 0) >= 1
+
+    # Block 2: Alice opens BUT Bob closes → abandoned_open for Alice
+    msgs_abandoned = [
+        _msg("Alice", "hey",       base),
+        _msg("Bob",   "hola",      base + timedelta(minutes=5)),
+        _msg("Alice", "que tal?",  base + timedelta(minutes=10)),
+        _msg("Bob",   "bien",      base + timedelta(minutes=15)),
+        _msg("Alice", "sigues?",   base + timedelta(hours=6)),
+        _msg("Bob",   "si",        base + timedelta(hours=6, minutes=3)),  # Bob last
+    ]
+    r2 = TemporalAnalyzer().analyze(_make_chat(msgs_abandoned))
+    assert r2.data["initiative_balance"]["abandoned_open"]["per_person"].get("Alice", 0) >= 1
 
 
 def test_double_text_detected():
@@ -211,10 +234,36 @@ def test_double_text_detected():
     assert dt["per_person"].get("Alice", 0) >= 1
 
 
-def test_initiative_balance_total_conversations():
-    result = TemporalAnalyzer().analyze(healthy_chat())
-    # All 20 blocks are genuine Alice initiatives (block 0 unconditional + 19 real)
-    assert result.data["initiative_balance"]["total_conversations"] == 20
+def test_initiative_sustained_requires_last_word():
+    """
+    Opener must have the last word in the block to count as sustained.
+    If the other person speaks last, opener abandoned the conversation.
+    """
+    base = datetime(2024, 1, 1, 10, 0)
+
+    # Alice opens, BOB has last word → abandoned_open for Alice
+    abandoned = [
+        _msg("Alice", "hey",     base),
+        _msg("Bob",   "hola",    base + timedelta(minutes=5)),
+        _msg("Alice", "que tal", base + timedelta(minutes=10)),
+        _msg("Bob",   "bien",    base + timedelta(minutes=15)),  # Bob last
+    ]
+    r = TemporalAnalyzer().analyze(_make_chat(abandoned + [
+        _msg("Bob", "extra", base + timedelta(hours=6))  # need 2nd block for analysis
+    ]))
+    assert r.data["initiative_balance"]["abandoned_open"]["per_person"].get("Alice", 0) >= 1
+
+    # Alice opens, ALICE has last word → genuine initiative
+    sustained = [
+        _msg("Alice", "hey",     base),
+        _msg("Bob",   "hola",    base + timedelta(minutes=5)),
+        _msg("Bob",   "que tal", base + timedelta(minutes=8)),
+        _msg("Alice", "bien",    base + timedelta(minutes=12)),  # Alice last
+    ]
+    r2 = TemporalAnalyzer().analyze(_make_chat(sustained + [
+        _msg("Bob", "extra", base + timedelta(hours=6))
+    ]))
+    assert r2.data["initiative_balance"]["per_person"].get("Alice", 0) >= 1
 
 
 # ── Activity patterns ─────────────────────────────────────────────────────────

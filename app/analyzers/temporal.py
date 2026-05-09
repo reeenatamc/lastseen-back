@@ -111,38 +111,22 @@ def _response_time(msgs: list[ParsedMessage]) -> dict:
 
 def _block_was_sustained(block: list[ParsedMessage]) -> bool:
     """
-    Returns True if the opener engaged with the conversation they started.
+    Returns True if the opener was still present at the end of the
+    conversation they started.
 
-    Rules:
-    - If the other person never spoke → not sustained (opener talked alone).
-    - If the block is exactly 2 messages (one each) → sustained: minimal
-      complete exchange, opener asked, other answered.
-    - If the block has 3+ messages → sustained only if the opener sent
-      at least one message AFTER the other person's first response.
-      Otherwise the opener opened and disappeared while the other
-      person kept writing alone.
+    Rule: the opener's last message must be MORE RECENT than the other
+    person's last message — i.e., the opener had the final word.
+
+    If the other person had the last word, the opener faded and left
+    the other person still writing/waiting.
     """
     opener = block[0].sender
 
-    # Find first message from the other person
-    other_first_idx = None
-    for i, msg in enumerate(block):
-        if msg.sender != opener:
-            other_first_idx = i
-            break
+    # Other person must have spoken at least once
+    if not any(m.sender != opener for m in block):
+        return False
 
-    if other_first_idx is None:
-        return False  # other person never spoke
-
-    if len(block) == 2:
-        return True  # opener + one reply = complete minimal exchange
-
-    # 3+ messages: opener must have replied after the other person spoke
-    for msg in block[other_first_idx + 1:]:
-        if msg.sender == opener:
-            return True
-
-    return False
+    return block[-1].sender == opener
 
 
 def _initiative_balance(msgs: list[ParsedMessage]) -> dict:
