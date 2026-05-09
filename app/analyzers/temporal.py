@@ -280,28 +280,39 @@ def _message_length(msgs: list[ParsedMessage]) -> dict:
     }
 
 
+_DELAY_THRESHOLD = 3 * 3600  # 3 hours in seconds
+
+
 def _response_decay(msgs: list[ParsedMessage]) -> dict:
     """
     Core LastSeen metric: detects progressive deterioration of reciprocity.
 
+    Health score components (per month):
+      - response_time  (40%) — how fast people respond
+      - initiative     (30%) — how balanced the conversation-starting is
+      - delay_rate     (30%) — how often someone made the other wait > 3h
+
     decay_score: 0.0 (healthy) → 1.0 (fully decayed)
-    turning_point: first month where health dropped and stayed down
-    trend: "improving" | "stable" | "deteriorating"
     """
-    # Build per-month snapshots in a single pass
     monthly_rt: dict[str, list[float]] = defaultdict(list)
     monthly_msgs: dict[str, int] = defaultdict(int)
+    monthly_turns: dict[str, int] = defaultdict(int)
+    monthly_delayed: dict[str, int] = defaultdict(int)
 
     for m in msgs:
         monthly_msgs[_month(m.timestamp)] += 1
 
     for i in range(1, len(msgs)):
         prev, curr = msgs[i - 1], msgs[i]
-        if prev.sender == curr.sender:
-            continue
         secs = (curr.timestamp - prev.timestamp).total_seconds()
-        if 0 < secs <= _MAX_RESPONSE_WINDOW.total_seconds():
-            monthly_rt[_month(curr.timestamp)].append(secs)
+
+        if prev.sender != curr.sender:
+            # Cross-sender gap: track response time and delayed turns
+            if 0 < secs <= _MAX_RESPONSE_WINDOW.total_seconds():
+                monthly_rt[_month(curr.timestamp)].append(secs)
+            monthly_turns[_month(curr.timestamp)] += 1
+            if secs > _DELAY_THRESHOLD:
+                monthly_delayed[_month(curr.timestamp)] += 1
 
     monthly_init: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
     for block in _split_into_blocks(msgs):
@@ -313,7 +324,6 @@ def _response_decay(msgs: list[ParsedMessage]) -> dict:
     if len(all_months) < 2:
         return {"trend": "insufficient_data"}
 
-    # Build evolution timeline
     evolution = []
     for month in all_months:
         avg_rt = round(statistics.mean(monthly_rt[month])) if monthly_rt[month] else None
@@ -325,19 +335,25 @@ def _response_decay(msgs: list[ParsedMessage]) -> dict:
         else:
             imbalance = 0.0
 
-        evolution.append(
-            {
-                "period": month,
-                "avg_response_seconds": avg_rt,
-                "message_count": monthly_msgs[month],
-                "initiative_imbalance": imbalance,
-            }
-        )
+        turns = monthly_turns[month]
+        delay_rate = round(monthly_delayed[month] / turns, 3) if turns else 0.0
+
+        evolution.append({
+            "period": month,
+            "avg_response_seconds": avg_rt,
+            "message_count": monthly_msgs[month],
+            "initiative_imbalance": imbalance,
+            "delay_rate": delay_rate,
+        })
 
     # Health score per month: 1.0 = perfect, 0.0 = dead
+    # delay_rate acts as an additional penalty on top of the base score —
+    # consistently making someone wait >3h chips away at relationship health.
     def _health(e: dict) -> float:
         rt_score = 1.0 - min((e["avg_response_seconds"] or 0) / _MAX_RESPONSE_WINDOW.total_seconds(), 1.0)
-        return round(rt_score * 0.5 + (1.0 - e["initiative_imbalance"]) * 0.5, 3)
+        base = rt_score * 0.5 + (1.0 - e["initiative_imbalance"]) * 0.5
+        delay_penalty = e["delay_rate"] * 0.25
+        return round(max(0.0, base - delay_penalty), 3)
 
     health = [_health(e) for e in evolution]
 
