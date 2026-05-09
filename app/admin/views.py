@@ -35,7 +35,5 @@ class AnalysisAdmin(ModelView, model=Analysis):
     column_searchable_list = [Analysis.original_filename]
     column_sortable_list = [Analysis.id, Analysis.status, Analysis.created_at]
     column_default_sort = [(Analysis.created_at, True)]
-    column_filters = [Analysis.status, Analysis.platform]
-
     can_create = False
     can_delete = True
