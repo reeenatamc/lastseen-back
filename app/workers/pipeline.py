@@ -34,27 +34,28 @@ def _select_parser(content: str, platform: str) -> BaseParser:
 
 
 def run_pipeline(*, analysis_id: int | None, content: str, platform: str) -> dict:
-    parser = _select_parser(content, platform)
-    parsed_chat = parser.parse(content)
+    try:
+        parser = _select_parser(content, platform)
+        parsed_chat = parser.parse(content)
 
-    results: dict = {}
-    for analyzer in _ANALYZERS:
-        result = analyzer.analyze(parsed_chat, context=results)
-        results[result.analyzer] = result.data
+        results: dict = {}
+        for analyzer in _ANALYZERS:
+            result = analyzer.analyze(parsed_chat, context=results)
+            results[result.analyzer] = result.data
 
-    if analysis_id is not None:
-        try:
+        if analysis_id is not None:
             _save_result(analysis_id, results)
-        except Exception as exc:
-            _mark_failed(analysis_id, str(exc))
-            raise
 
-    return {
-        "platform": parsed_chat.platform,
-        "total_messages": parsed_chat.total_messages,
-        "participants": parsed_chat.participants,
-        "analysis": results,
-    }
+        return {
+            "platform": parsed_chat.platform,
+            "total_messages": parsed_chat.total_messages,
+            "participants": parsed_chat.participants,
+            "analysis": results,
+        }
+    except Exception as exc:
+        if analysis_id is not None:
+            _mark_failed(analysis_id, str(exc))
+        raise
 
 
 def _save_result(analysis_id: int, results: dict) -> None:
