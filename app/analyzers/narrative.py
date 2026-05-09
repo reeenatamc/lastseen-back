@@ -148,7 +148,10 @@ def _build_payload(chat: ParsedChat, context: dict) -> dict:
             "conversaciones_totales": initiative.get("total_conversations"),
         },
         "tiempo_respuesta": {
-            p: _fmt_seconds(v.get("mean_seconds"))
+            p: {
+                "promedio": _fmt_seconds(v.get("mean_seconds")),
+                "consistencia_0_a_1": v.get("consistency_score"),
+            }
             for p, v in (rt.get("per_person") or {}).items()
         },
         "deterioro": {

@@ -86,13 +86,25 @@ def _response_time(msgs: list[ParsedMessage]) -> dict:
 
     quarters = sorted(by_quarter)
 
+    def _person_stats(v: list[float]) -> dict:
+        mean = statistics.mean(v)
+        std = statistics.stdev(v) if len(v) >= 2 else 0.0
+        # Consistency: % of responses that came within 1 hour.
+        # 1.0 = almost always responds quickly.
+        # 0.0 = almost always takes more than an hour.
+        # Low score = hot/cold behavior (sometimes instant, sometimes hours).
+        within_1h = sum(1 for s in v if s <= 3600) / len(v)
+        return {
+            "mean_seconds": round(mean),
+            "median_seconds": round(statistics.median(v)),
+            "p90_seconds": round(_p90(v)),
+            "std_seconds": round(std),
+            "consistency_score": round(within_1h, 3),
+        }
+
     return {
         "per_person": {
-            p: {
-                "mean_seconds": round(statistics.mean(v)),
-                "median_seconds": round(statistics.median(v)),
-                "p90_seconds": round(_p90(v)),
-            }
+            p: _person_stats(v)
             for p, v in times.items()
         },
         "evolution": [
