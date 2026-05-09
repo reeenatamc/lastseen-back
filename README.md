@@ -26,6 +26,9 @@
 
 <br/>
 
+> You upload a chat.
+> We tell you when it started dying.
+
 > The backend doesn't store your conversations.
 > It reads them, extracts the patterns, and forgets.
 
