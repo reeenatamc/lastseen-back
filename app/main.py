@@ -54,8 +54,9 @@ admin = Admin(
     app,
     engine,
     authentication_backend=AdminAuth(secret_key=settings.SECRET_KEY),
-    title="LastSeen Admin",
+    title="LASTSEEN",
     base_url="/admin",
+    templates_dir="app/admin/templates",
 )
 admin.add_view(UserAdmin)
 admin.add_view(AnalysisAdmin)
