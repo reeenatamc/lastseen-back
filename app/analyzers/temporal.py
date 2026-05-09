@@ -386,10 +386,13 @@ def _response_decay(msgs: list[ParsedMessage]) -> dict:
         })
 
     # Health score per month: 1.0 = perfect, 0.0 = dead
-    # delay_rate acts as an additional penalty on top of the base score —
-    # consistently making someone wait >3h chips away at relationship health.
+    # Months with no response data (rt=None) are inactive months —
+    # penalized as low-health rather than treated as "perfect".
     def _health(e: dict) -> float:
-        rt_score = 1.0 - min((e["avg_response_seconds"] or 0) / _MAX_RESPONSE_WINDOW.total_seconds(), 1.0)
+        if e["avg_response_seconds"] is None:
+            # Inactive month: no cross-sender responses recorded
+            return 0.2
+        rt_score = 1.0 - min(e["avg_response_seconds"] / _MAX_RESPONSE_WINDOW.total_seconds(), 1.0)
         base = rt_score * 0.5 + (1.0 - e["initiative_imbalance"]) * 0.5
         delay_penalty = e["delay_rate"] * 0.25
         return round(max(0.0, base - delay_penalty), 3)
