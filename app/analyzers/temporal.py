@@ -109,36 +109,73 @@ def _response_time(msgs: list[ParsedMessage]) -> dict:
     }
 
 
+def _block_was_sustained(block: list[ParsedMessage]) -> bool:
+    """
+    Returns True if the opener engaged with the conversation they started.
+
+    Rules:
+    - If the other person never spoke → not sustained (opener talked alone).
+    - If the block is exactly 2 messages (one each) → sustained: minimal
+      complete exchange, opener asked, other answered.
+    - If the block has 3+ messages → sustained only if the opener sent
+      at least one message AFTER the other person's first response.
+      Otherwise the opener opened and disappeared while the other
+      person kept writing alone.
+    """
+    opener = block[0].sender
+
+    # Find first message from the other person
+    other_first_idx = None
+    for i, msg in enumerate(block):
+        if msg.sender != opener:
+            other_first_idx = i
+            break
+
+    if other_first_idx is None:
+        return False  # other person never spoke
+
+    if len(block) == 2:
+        return True  # opener + one reply = complete minimal exchange
+
+    # 3+ messages: opener must have replied after the other person spoke
+    for msg in block[other_first_idx + 1:]:
+        if msg.sender == opener:
+            return True
+
+    return False
+
+
 def _initiative_balance(msgs: list[ParsedMessage]) -> dict:
     """
-    Classifies each gap > _INITIATIVE_GAP into three buckets:
+    Classifies each gap > _INITIATIVE_GAP into four buckets:
 
-    - initiative:   previous block had a mutual exchange (different senders
-                    opened and closed it) → whoever speaks first genuinely
-                    chose to start a new conversation.
-    - late_reply:   previous block was opened and closed by the same person
-                    (their message went unanswered) → the other person
-                    speaking is finally responding, not initiating.
-    - double_text:  same person speaks again after their own unanswered
-                    message.
+    - initiative:      opened a conversation AND stayed to engage
+                       (opener responded to the other person at least once).
+    - abandoned_open:  opened a conversation but never replied after the
+                       other person spoke — started but didn't sustain.
+    - late_reply:      previous block was opened and closed by the same
+                       person (unanswered) → other person finally responds.
+    - double_text:     same person speaks again after their own last message.
 
-    Heuristic: a block is "complete" when its opener ≠ its last speaker,
-    meaning the conversation had a mutual back-and-forth and ended
-    naturally. A block where opener == last_speaker means the opener
-    had the last word with no reply.
+    This captures the real emotional pattern: initiating only counts
+    if you actually showed up for the conversation you started.
     """
     initiatives: dict[str, int] = defaultdict(int)
+    abandoned_opens: dict[str, int] = defaultdict(int)
     late_replies: dict[str, int] = defaultdict(int)
     double_texts: dict[str, int] = defaultdict(int)
     by_quarter_init: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
 
     blocks = _split_into_blocks(msgs)
 
-    # First block has no context — unconditional initiative
+    # First block — unconditional, classify by whether opener sustained it
     if blocks:
         opener = blocks[0][0].sender
-        initiatives[opener] += 1
-        by_quarter_init[_quarter(blocks[0][0].timestamp)][opener] += 1
+        if _block_was_sustained(blocks[0]):
+            initiatives[opener] += 1
+            by_quarter_init[_quarter(blocks[0][0].timestamp)][opener] += 1
+        else:
+            abandoned_opens[opener] += 1
 
     for prev_block, curr_block in zip(blocks, blocks[1:]):
         block_opener  = prev_block[0].sender
@@ -149,18 +186,19 @@ def _initiative_balance(msgs: list[ParsedMessage]) -> dict:
             double_texts[first_speaker] += 1
 
         elif block_opener == last_speaker:
-            # The same person who opened the block also had the last word —
-            # their message went unanswered. The other person responding is
-            # a late reply, not a genuine initiative.
             late_replies[first_speaker] += 1
 
         else:
-            # The block closed with a mutual exchange (opener ≠ last_speaker).
-            # Whoever speaks first after the gap is genuinely starting fresh.
-            initiatives[first_speaker] += 1
-            by_quarter_init[_quarter(curr_block[0].timestamp)][first_speaker] += 1
+            # Potential genuine initiative — but only counts if the opener
+            # actually engaged with the conversation they started.
+            if _block_was_sustained(curr_block):
+                initiatives[first_speaker] += 1
+                by_quarter_init[_quarter(curr_block[0].timestamp)][first_speaker] += 1
+            else:
+                abandoned_opens[first_speaker] += 1
 
     total_init = sum(initiatives.values())
+    total_ab   = sum(abandoned_opens.values())
     total_lr   = sum(late_replies.values())
     total_dt   = sum(double_texts.values())
     quarters   = sorted(by_quarter_init)
@@ -172,6 +210,11 @@ def _initiative_balance(msgs: list[ParsedMessage]) -> dict:
         "total_conversations": total_init,
         "per_person": dict(initiatives),
         "share": _share(initiatives, total_init),
+        "abandoned_open": {
+            "per_person": dict(abandoned_opens),
+            "share": _share(abandoned_opens, total_ab),
+            "total": total_ab,
+        },
         "late_reply": {
             "per_person": dict(late_replies),
             "share": _share(late_replies, total_lr),

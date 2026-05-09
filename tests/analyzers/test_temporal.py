@@ -164,11 +164,12 @@ def test_late_reply_not_counted_as_initiative():
     ]
     result = TemporalAnalyzer().analyze(_make_chat(msgs))
     ib = result.data["initiative_balance"]
-    # Alice has the only real initiative (block 1 opener)
-    # Bob's response is a late_reply
-    assert ib["per_person"].get("Alice", 0) >= 1
+    # Alice opened but got no response → abandoned_open
+    assert ib["abandoned_open"]["per_person"].get("Alice", 0) >= 1
+    # Bob finally responded → late_reply, not initiative
     assert ib["late_reply"]["per_person"].get("Bob", 0) >= 1
     assert ib["per_person"].get("Bob", 0) == 0
+    assert ib["per_person"].get("Alice", 0) == 0
 
 
 def test_genuine_initiative_after_complete_exchange():
