@@ -1,7 +1,9 @@
 from typing import Literal
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile, status
 from pydantic import BaseModel
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 
 from app.core.dependencies import DB, OptionalUserId
 from app.models.analysis import Analysis, AnalysisStatus
@@ -13,6 +15,13 @@ ALLOWED_MIME_TYPES = {"text/plain", "application/zip", "application/json"}
 MAX_FILE_SIZE = 50 * 1024 * 1024  # 50 MB
 
 Platform = Literal["whatsapp", "telegram", "imessage"]
+
+# Rate limit key: user_id for authenticated users, IP for guests
+def _rate_key(request: Request) -> str:
+    user_id = getattr(request.state, "user_id", None)
+    return f"user:{user_id}" if user_id else get_remote_address(request)
+
+limiter = Limiter(key_func=_rate_key)
 
 
 class UploadResponse(BaseModel):
@@ -28,12 +37,17 @@ class TaskStatusResponse(BaseModel):
 
 
 @router.post("/", response_model=UploadResponse, status_code=status.HTTP_202_ACCEPTED)
+@limiter.limit("10/hour")  # registered users: 10/h · guests share same IP limit
 async def upload_chat(
+    request: Request,
     db: DB,
     user_id: OptionalUserId,
     file: UploadFile = File(...),
     platform: Platform = Form("whatsapp"),
 ):
+    # Expose user_id to the rate key function via request state
+    request.state.user_id = user_id
+
     if file.content_type not in ALLOWED_MIME_TYPES:
         raise HTTPException(
             status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,

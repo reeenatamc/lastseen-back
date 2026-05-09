@@ -21,6 +21,9 @@ redis==5.1.1
 python-jose[cryptography]==3.3.0
 bcrypt==4.2.1
 
+# Rate limiting
+slowapi==0.1.9
+
 # Admin panel
 sqladmin>=0.18.0
 itsdangerous>=2.1.0
