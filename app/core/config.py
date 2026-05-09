@@ -17,7 +17,7 @@ class Settings(BaseSettings):
     NARRATIVE_MODEL: str = "claude-haiku-4-5"
 
     GEMINI_API_KEY: str | None = None
-    GEMINI_MODEL: str = "gemini-2.5-flash-preview-05-20"
+    GEMINI_MODEL: str = "gemini-2.5-flash"
 
     ADMIN_USERNAME: str = "admin"
     ADMIN_PASSWORD: str = "changeme"
