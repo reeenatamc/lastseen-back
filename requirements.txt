@@ -21,6 +21,11 @@ redis==5.1.1
 python-jose[cryptography]==3.3.0
 bcrypt==4.2.1
 
+# Admin panel
+sqladmin>=0.18.0
+itsdangerous>=2.1.0
+starlette==0.41.2
+
 # Claude API — narrative generation
 anthropic>=0.34.0
 

@@ -16,6 +16,9 @@ class Settings(BaseSettings):
     ANTHROPIC_API_KEY: str | None = None
     NARRATIVE_MODEL: str = "claude-haiku-4-5"
 
+    ADMIN_USERNAME: str = "admin"
+    ADMIN_PASSWORD: str = "changeme"
+
     SECRET_KEY: str
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
