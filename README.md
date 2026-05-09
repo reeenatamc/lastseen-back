@@ -8,18 +8,17 @@
 █  ████  █  ████  ████████  ████  ████  █
 █▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄█
 
-     L  A  S  T  S  E  E  N
+     L  A  S  T  S  E  E  N  ·  B A C K E N D
 ```
 
 <br/>
 
-### *Every conversation leaves a trace.*
-### *We read it.*
+### *The engine that reads what was left unsaid.*
 
 <br/>
 
 [![Status](https://img.shields.io/badge/–%20in%20development%20–-000000?style=for-the-badge)](.)
-[![Made with](https://img.shields.io/badge/Next.js%20+%20FastAPI-000000?style=for-the-badge&logo=nextdotjs&logoColor=white)](.)
+[![Stack](https://img.shields.io/badge/FastAPI%20·%20Celery%20·%20PostgreSQL-000000?style=for-the-badge)](.)
 
 </div>
 
@@ -27,16 +26,12 @@
 
 <br/>
 
-> You upload a chat.
-> We tell you when it started dying.
+> The backend doesn't store your conversations.
+> It reads them, extracts the patterns, and forgets.
 
 <br/>
 
-LASTSEEN is an AI platform that analyzes exported conversations and reconstructs their **emotional history** — not as data, but as a story.
-
-When did the tone shift? Who kept trying after the other person stopped? What was the last moment of real connection?
-
-The answers are already in your messages. LASTSEEN surfaces them.
+FastAPI + Celery pipeline that parses exported WhatsApp chats, runs three layers of analysis — temporal, emotional, narrative — and returns a structured JSON that the frontend turns into a story.
 
 <br/>
 
@@ -47,14 +42,27 @@ The answers are already in your messages. LASTSEEN surfaces them.
 <div align="center">
 
 ```
- upload  ──────────────────────────────────────────  analyze  ──────  feel
-   │                                                     │
-   ▼                                                     ▼
- .txt                                            emotional drift
- from WhatsApp                                  response decay
-                                                silence onset
-                                                initiative shift
-                                                narrative AI
+ .txt file
+    │
+    ▼
+ PARSER ────────────────────────────────────────────────────────
+ WhatsApp · Telegram · iMessage                                 │
+    │                                                           │
+    ▼                                                           │
+ ANALYZERS (in memory — raw messages never leave)              │
+    │                                                           │
+    ├── temporal.py ── response time · initiative balance       │
+    │                  double text · response decay             │
+    │                  silence map · activity patterns          │
+    │                                                           │
+    ├── sentiment.py ── HuggingFace multilingual DistilBERT     │
+    │                   tone per person · emotional drift       │
+    │                                                           │
+    └── narrative.py ── Claude API (metrics only, never text)   │
+                        5-field emotional interpretation        │
+    │                                                           │
+    ▼                                                           │
+ result JSON ──────────────────────────────────────────────── BD
 ```
 
 </div>
@@ -65,21 +73,23 @@ The answers are already in your messages. LASTSEEN surfaces them.
 
 <br/>
 
-## What you'll see
+## API
 
-**→ Emotional Timeline**
-A curve of how the conversation felt — day by day, month by month. Where it was warm. Where it went cold.
+```
+POST   /api/v1/auth/register        create account
+POST   /api/v1/auth/token           login → JWT
+GET    /api/v1/auth/me              current user
 
-**→ Heartbeat View**
-The pulse of the conversation over its entire life. You'll see exactly when it flatlined.
+POST   /api/v1/upload/              upload .txt → queues Celery task
+GET    /api/v1/upload/status/{id}   poll task (guests)
 
-**→ Silence Map**
-A calendar of the gaps. The weeks where nothing was said. The pattern of disappearance.
+GET    /api/v1/analysis/            list analyses
+GET    /api/v1/analysis/{id}        full result
+GET    /api/v1/analysis/{id}/status lightweight poll (registered users)
+DELETE /api/v1/analysis/{id}        delete
 
-**→ Narrative AI**
-A written interpretation in plain language. Not a summary — a story.
-
-> *"Reciprocity began declining in early March. One party continued initiating contact for eleven weeks after engagement had effectively ended on the other side."*
+GET    /admin                       SQLAdmin panel
+```
 
 <br/>
 
@@ -87,17 +97,39 @@ A written interpretation in plain language. Not a summary — a story.
 
 <br/>
 
-## Built with intention
+## What the analyzers measure
+
+**→ Initiative balance**
+Who actually starts conversations — not just who messages first, but who breaks the silence after the other person was the last to speak. Plus double text tracking: who followed up unanswered.
+
+**→ Response decay**
+Are response times getting longer? Is reciprocity deteriorating? Expressed as a score 0 → 1 with a turning point and quarterly evolution.
+
+**→ Emotional drift**
+How aligned are the emotional tones of both people over time? Measured via multilingual sentiment analysis, sampled from up to 2000 messages per chat.
+
+**→ Narrative**
+Five-field interpretation generated by Claude — overview, dynamic, turning point, current state, reflection. Receives only aggregated metrics, never message content.
+
+<br/>
+
+---
+
+<br/>
+
+## Stack
 
 | Layer | Technology |
 |---|---|
-| Frontend | Next.js 14 · TypeScript · TailwindCSS · Framer Motion |
-| Visualization | Recharts · D3.js |
-| Backend | FastAPI · Python 3.11 · Celery · Redis |
-| Database | PostgreSQL · SQLAlchemy · Alembic |
-| AI | HuggingFace Transformers · Claude API |
-| Payments | Stripe |
-| Deploy | Railway → AWS |
+| API | FastAPI · Python 3.11 · Uvicorn |
+| Queue | Celery · Redis |
+| Database | PostgreSQL · SQLAlchemy 2.0 · Alembic |
+| Parsers | WhatsApp · Telegram · iMessage |
+| NLP | HuggingFace Transformers (distilbert multilingual) |
+| AI | Claude API (claude-haiku-4-5, configurable) |
+| Admin | SQLAdmin |
+| Auth | JWT · bcrypt |
+| Deploy | Docker · Railway → AWS |
 
 <br/>
 
@@ -107,10 +139,10 @@ A written interpretation in plain language. Not a summary — a story.
 
 ## Privacy, by design
 
-- Your messages are **never stored permanently**
-- Raw content is **never sent to any AI model**
-- Only aggregated metrics reach external APIs
-- Processing is ephemeral — deleted after analysis
+- Raw messages are **never stored permanently** (table exists for future opt-in)
+- Message content is **never sent to any external API**
+- Claude receives only aggregated metrics — no text, no names, no dates
+- Processing is ephemeral — result JSON is all that persists
 
 *You share something intimate. We treat it that way.*
 
@@ -124,10 +156,11 @@ A written interpretation in plain language. Not a summary — a story.
 
 ```
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  v0.1  parser + temporal engine       [ ████░░ ]
-  v0.2  sentiment + visualizations     [ ░░░░░░ ]
-  v0.3  narrative AI + payments        [ ░░░░░░ ]
-  v1.0  public launch                  [ ░░░░░░ ]
+  v0.1  parsers + temporal analyzer   [ ████████ ]
+  v0.2  sentiment + pipeline + API    [ ████████ ]
+  v0.3  narrative AI + admin          [ ██████░░ ]
+  v0.4  payments (Stripe)             [ ░░░░░░░░ ]
+  v1.0  public launch                 [ ░░░░░░░░ ]
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ```
 
@@ -139,7 +172,7 @@ A written interpretation in plain language. Not a summary — a story.
 
 ---
 
-*Some conversations end before the last message.*
-*LASTSEEN shows you exactly when.*
+*The data was always there.*
+*LASTSEEN just knows how to read it.*
 
 </div>
