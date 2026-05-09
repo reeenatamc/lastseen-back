@@ -158,6 +158,12 @@ def _build_payload(chat: ParsedChat, context: dict) -> dict:
         },
     }
 
+    delayed = temporal.get("delayed_replies", {})
+    if delayed and delayed.get("total", 0) > 0:
+        payload["demoras_mas_de_3h"] = {
+            p: c for p, c in (delayed.get("per_person") or {}).items()
+        }
+
     if sentiment and not sentiment.get("error"):
         payload["sentimiento"] = {
             p: {
