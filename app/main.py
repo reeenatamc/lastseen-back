@@ -14,10 +14,13 @@ from app.api.v1 import router as api_v1_router
 class AdminAuth(AuthenticationBackend):
     async def login(self, request: Request) -> bool:
         form = await request.form()
-        return (
+        if (
             form.get("username") == settings.ADMIN_USERNAME
             and form.get("password") == settings.ADMIN_PASSWORD
-        )
+        ):
+            request.session["authenticated"] = True
+            return True
+        return False
 
     async def logout(self, request: Request) -> bool:
         request.session.clear()
