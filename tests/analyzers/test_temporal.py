@@ -2,7 +2,11 @@ from datetime import datetime, timedelta
 
 import pytest
 
-from app.analyzers.temporal import TemporalAnalyzer
+from app.analyzers.temporal import (
+    TemporalAnalyzer,
+    _initiative_balance,
+    _message_length,
+)
 from app.parsers.base import ParsedChat, ParsedMessage
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -173,11 +177,8 @@ def test_late_reply_not_counted_as_initiative():
         _msg("Bob",   "perdon",       base + timedelta(hours=6)),
         _msg("Alice", "ok",           base + timedelta(hours=6, minutes=2)),
     ]
-    result = TemporalAnalyzer().analyze(_make_chat(msgs))
-    ib = result.data["initiative_balance"]
-    # Alice opened but got no response → abandoned_open
+    ib = _initiative_balance(_make_chat(msgs).messages)
     assert ib["abandoned_open"]["per_person"].get("Alice", 0) >= 1
-    # Bob finally responded → late_reply, not initiative
     assert ib["late_reply"]["per_person"].get("Bob", 0) >= 1
     assert ib["per_person"].get("Bob", 0) == 0
     assert ib["per_person"].get("Alice", 0) == 0
@@ -202,26 +203,23 @@ def test_genuine_initiative_requires_natural_prior_and_last_word():
         _msg("Bob",   "si",        base + timedelta(hours=6, minutes=3)),
         _msg("Alice", "buenoo",    base + timedelta(hours=6, minutes=5)),  # Alice last
     ]
-    r = TemporalAnalyzer().analyze(_make_chat(msgs_sustained))
-    assert r.data["initiative_balance"]["per_person"].get("Alice", 0) >= 1
+    # Call pure function directly — bypasses the MIN_MESSAGES threshold
+    ib = _initiative_balance(_make_chat(msgs_sustained).messages)
+    assert ib["per_person"].get("Alice", 0) >= 1
 
-    # Block 2: Alice opens BUT Bob closes → abandoned_open for Alice
     msgs_abandoned = [
         _msg("Alice", "hey",       base),
         _msg("Bob",   "hola",      base + timedelta(minutes=5)),
         _msg("Alice", "que tal?",  base + timedelta(minutes=10)),
         _msg("Bob",   "bien",      base + timedelta(minutes=15)),
         _msg("Alice", "sigues?",   base + timedelta(hours=6)),
-        _msg("Bob",   "si",        base + timedelta(hours=6, minutes=3)),  # Bob last
+        _msg("Bob",   "si",        base + timedelta(hours=6, minutes=3)),
     ]
-    r2 = TemporalAnalyzer().analyze(_make_chat(msgs_abandoned))
-    assert r2.data["initiative_balance"]["abandoned_open"]["per_person"].get("Alice", 0) >= 1
+    ib2 = _initiative_balance(_make_chat(msgs_abandoned).messages)
+    assert ib2["abandoned_open"]["per_person"].get("Alice", 0) >= 1
 
 
 def test_double_text_detected():
-    """
-    Alice messages twice without a response — double text.
-    """
     base = datetime(2024, 1, 1, 10, 0)
     msgs = [
         _msg("Bob",   "hi",         base),
@@ -229,41 +227,32 @@ def test_double_text_detected():
         _msg("Alice", "sigo aqui?", base + timedelta(hours=5)),
         _msg("Bob",   "sorry",      base + timedelta(hours=5, minutes=10)),
     ]
-    result = TemporalAnalyzer().analyze(_make_chat(msgs))
-    dt = result.data["initiative_balance"]["double_text"]
-    assert dt["per_person"].get("Alice", 0) >= 1
+    ib = _initiative_balance(_make_chat(msgs).messages)
+    assert ib["double_text"]["per_person"].get("Alice", 0) >= 1
 
 
 def test_initiative_sustained_requires_last_word():
-    """
-    Opener must have the last word in the block to count as sustained.
-    If the other person speaks last, opener abandoned the conversation.
-    """
     base = datetime(2024, 1, 1, 10, 0)
 
-    # Alice opens, BOB has last word → abandoned_open for Alice
     abandoned = [
         _msg("Alice", "hey",     base),
         _msg("Bob",   "hola",    base + timedelta(minutes=5)),
         _msg("Alice", "que tal", base + timedelta(minutes=10)),
-        _msg("Bob",   "bien",    base + timedelta(minutes=15)),  # Bob last
+        _msg("Bob",   "bien",    base + timedelta(minutes=15)),
+        _msg("Bob",   "extra",   base + timedelta(hours=6)),
     ]
-    r = TemporalAnalyzer().analyze(_make_chat(abandoned + [
-        _msg("Bob", "extra", base + timedelta(hours=6))  # need 2nd block for analysis
-    ]))
-    assert r.data["initiative_balance"]["abandoned_open"]["per_person"].get("Alice", 0) >= 1
+    ib = _initiative_balance(_make_chat(abandoned).messages)
+    assert ib["abandoned_open"]["per_person"].get("Alice", 0) >= 1
 
-    # Alice opens, ALICE has last word → genuine initiative
     sustained = [
         _msg("Alice", "hey",     base),
         _msg("Bob",   "hola",    base + timedelta(minutes=5)),
         _msg("Bob",   "que tal", base + timedelta(minutes=8)),
-        _msg("Alice", "bien",    base + timedelta(minutes=12)),  # Alice last
+        _msg("Alice", "bien",    base + timedelta(minutes=12)),
+        _msg("Bob",   "extra",   base + timedelta(hours=6)),
     ]
-    r2 = TemporalAnalyzer().analyze(_make_chat(sustained + [
-        _msg("Bob", "extra", base + timedelta(hours=6))
-    ]))
-    assert r2.data["initiative_balance"]["per_person"].get("Alice", 0) >= 1
+    ib2 = _initiative_balance(_make_chat(sustained).messages)
+    assert ib2["per_person"].get("Alice", 0) >= 1
 
 
 # ── Activity patterns ─────────────────────────────────────────────────────────
@@ -316,8 +305,8 @@ def test_message_length_skips_media():
         _msg("Bob", "hello there friend", BASE + timedelta(minutes=1)),
         _msg("Alice", "hey", BASE + timedelta(minutes=2)),
     ]
-    result = TemporalAnalyzer().analyze(_make_chat(msgs))
-    length = result.data["message_length"]["per_person"]
+    # Call pure function directly — bypasses MIN_MESSAGES threshold
+    length = _message_length(_make_chat(msgs).messages)["per_person"]
     assert length["Alice"]["mean_chars"] == 3
     assert length["Bob"]["mean_chars"] == 18
 
@@ -372,7 +361,8 @@ def test_single_message_returns_error():
     assert TemporalAnalyzer().analyze(chat).data.get("error") == "insufficient_data"
 
 
-def test_two_messages_minimum():
+def test_two_messages_returns_insufficient():
+    """2 messages is far below the minimum threshold — must return an error."""
     msgs = [_msg("Alice", "hi", BASE), _msg("Bob", "hey", BASE + timedelta(minutes=5))]
     result = TemporalAnalyzer().analyze(_make_chat(msgs))
-    assert result.data["overview"]["total_messages"] == 2
+    assert result.data.get("error") == "insufficient_data"

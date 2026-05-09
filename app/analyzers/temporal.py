@@ -29,10 +29,25 @@ _TOP_GAPS = 5
 class TemporalAnalyzer(BaseAnalyzer):
     name = "temporal"
 
+    MIN_MESSAGES = 50
+    MIN_DAYS = 7
+
     def analyze(self, chat: ParsedChat, context: dict | None = None) -> AnalysisResult:
         msgs = chat.messages
         if len(msgs) < 2:
             return AnalysisResult(analyzer=self.name, data={"error": "insufficient_data"})
+
+        total_days = (msgs[-1].timestamp - msgs[0].timestamp).days
+        if len(msgs) < self.MIN_MESSAGES or total_days < self.MIN_DAYS:
+            return AnalysisResult(
+                analyzer=self.name,
+                data={
+                    "error": "insufficient_data",
+                    "detail": f"El chat tiene {len(msgs)} mensajes en {total_days} días. "
+                              f"Se necesitan al menos {self.MIN_MESSAGES} mensajes y "
+                              f"{self.MIN_DAYS} días para un análisis significativo.",
+                },
+            )
 
         return AnalysisResult(
             analyzer=self.name,
@@ -415,10 +430,13 @@ def _response_decay(msgs: list[ParsedMessage]) -> dict:
     # Decay score based on recent state
     decay_score = round(1.0 - statistics.mean(health[-third:]), 3)
 
-    # Turning point: month with the biggest single-month health drop
+    # Turning point: month with the biggest single-month health drop.
+    # Suppressed if it falls in the last 20% of the period — that would
+    # just be the edge of the data, not a real inflection point.
+    cutoff_idx = max(1, round(len(evolution) * 0.8))
     turning_point = None
-    max_drop = 0.05  # minimum meaningful drop
-    for i in range(1, len(health)):
+    max_drop = 0.05
+    for i in range(1, cutoff_idx):
         drop = health[i - 1] - health[i]
         if drop > max_drop:
             max_drop = drop
