@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'app/**'
+      - 'tests/**'
+      - 'requirements.txt'
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Install dependencies (skip heavy ML packages)
+        run: |
+          pip install --quiet \
+            fastapi uvicorn pydantic-settings \
+            sqlalchemy asyncpg psycopg2-binary alembic \
+            celery redis \
+            python-jose bcrypt \
+            python-multipart email-validator \
+            slowapi itsdangerous \
+            anthropic \
+            pytest pytest-asyncio httpx
+
+      - name: Run tests
+        run: |
+          pytest tests/parsers/ tests/analyzers/test_temporal.py tests/analyzers/test_narrative.py -v
+        # Sentiment tests excluded — require torch (~2GB), tested locally
