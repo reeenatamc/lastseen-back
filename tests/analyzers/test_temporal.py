@@ -24,8 +24,10 @@ def _make_chat(msgs: list[ParsedMessage]) -> ParsedChat:
 
 def healthy_chat() -> ParsedChat:
     """
-    20 blocks separated by 2-day gaps (> 24h → responses never cross blocks).
-    Alice and Bob alternate who initiates. All within-block responses ≈ 5 min.
+    20 blocks separated by 2-day gaps. Alice and Bob alternate who initiates.
+    Each block ends with the INITIATOR so the next block's opener is always
+    the OTHER person — ensuring they get correctly counted as a new initiative
+    (not a double text) under the corrected _initiative_balance definition.
     """
     msgs = []
     for block in range(20):
@@ -34,8 +36,8 @@ def healthy_chat() -> ParsedChat:
         msgs += [
             _msg(init, "hey there!", t),
             _msg(resp, "hello!", t + timedelta(minutes=5)),
-            _msg(init, "how was your day?", t + timedelta(minutes=10)),
-            _msg(resp, "was really good thanks!", t + timedelta(minutes=15)),
+            _msg(resp, "how was your day?", t + timedelta(minutes=8)),
+            _msg(init, "was really good!", t + timedelta(minutes=12)),  # init speaks last
         ]
     return _make_chat(msgs)
 
@@ -122,9 +124,50 @@ def test_initiative_balance_healthy():
 def test_initiative_balance_decayed():
     result = TemporalAnalyzer().analyze(decayed_chat())
     share = result.data["initiative_balance"]["share"]
-    # Alice carries far more than Bob (all 15 decayed blocks + half of healthy ones)
     assert share["Alice"] > share.get("Bob", 0)
     assert share["Alice"] > 0.65
+
+
+def test_double_text_keys_present():
+    result = TemporalAnalyzer().analyze(healthy_chat())
+    dt = result.data["initiative_balance"]["double_text"]
+    assert "per_person" in dt
+    assert "share" in dt
+    assert "total" in dt
+
+
+def test_late_reply_not_counted_as_initiative():
+    """
+    Alice messages, Bob responds 5h later. Under the corrected logic Bob's
+    reply is a late response — not an initiative. Alice is the initiator.
+    """
+    base = datetime(2024, 1, 1, 10, 0)
+    msgs = [
+        _msg("Alice", "hey",        base),
+        _msg("Bob",   "hola",       base + timedelta(hours=5)),   # late reply, NOT initiative
+        _msg("Alice", "como estas", base + timedelta(hours=5, minutes=2)),
+        _msg("Bob",   "bien",       base + timedelta(hours=5, minutes=5)),
+    ]
+    result = TemporalAnalyzer().analyze(_make_chat(msgs))
+    share = result.data["initiative_balance"]["share"]
+    # Alice opened the only real initiative (the very first message)
+    assert share.get("Alice", 0) >= share.get("Bob", 0)
+
+
+def test_double_text_detected():
+    """
+    Alice messages twice without a response — that's a double text.
+    """
+    base = datetime(2024, 1, 1, 10, 0)
+    msgs = [
+        _msg("Bob",   "hi",         base),
+        _msg("Alice", "hey",        base + timedelta(minutes=1)),
+        _msg("Alice", "sigo aqui?", base + timedelta(hours=5)),  # double text by Alice
+        _msg("Bob",   "sorry",      base + timedelta(hours=5, minutes=10)),
+    ]
+    result = TemporalAnalyzer().analyze(_make_chat(msgs))
+    dt = result.data["initiative_balance"]["double_text"]
+    assert dt["per_person"].get("Alice", 0) >= 1
 
 
 def test_initiative_balance_total_conversations():

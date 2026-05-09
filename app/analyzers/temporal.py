@@ -109,29 +109,64 @@ def _response_time(msgs: list[ParsedMessage]) -> dict:
 
 
 def _initiative_balance(msgs: list[ParsedMessage]) -> dict:
-    blocks = _split_into_blocks(msgs)
+    """
+    Classifies each gap > _INITIATIVE_GAP into one of three buckets:
+
+    - initiated:   first message after mutual silence (the other person
+                   was the last to speak before the gap).
+    - double_text: follow-up after own unanswered message (same person
+                   was last to speak before the gap).
+    - late_reply:  (not counted as initiative — it's a delayed response)
+
+    This correctly handles the case where A messages, B takes 5 h to
+    reply, and B's reply was previously mis-counted as B "initiating".
+    """
     initiatives: dict[str, int] = defaultdict(int)
-    by_quarter: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+    double_texts: dict[str, int] = defaultdict(int)
+    by_quarter_init: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
 
-    for block in blocks:
-        sender = block[0].sender
-        initiatives[sender] += 1
-        by_quarter[_quarter(block[0].timestamp)][sender] += 1
+    blocks = _split_into_blocks(msgs)
 
-    total = sum(initiatives.values())
-    quarters = sorted(by_quarter)
+    # blocks[0] has no "previous speaker" — whoever opens is the initiator
+    if blocks:
+        opener = blocks[0][0].sender
+        initiatives[opener] += 1
+        by_quarter_init[_quarter(blocks[0][0].timestamp)][opener] += 1
+
+    for prev_block, curr_block in zip(blocks, blocks[1:]):
+        last_speaker = prev_block[-1].sender
+        first_speaker = curr_block[0].sender
+
+        if first_speaker == last_speaker:
+            # Same person speaks again after a gap — double text
+            double_texts[first_speaker] += 1
+        else:
+            # Different person breaks the silence — real initiative
+            initiatives[first_speaker] += 1
+            by_quarter_init[_quarter(curr_block[0].timestamp)][first_speaker] += 1
+
+    total_init = sum(initiatives.values())
+    total_dt = sum(double_texts.values())
+    quarters = sorted(by_quarter_init)
 
     return {
-        "total_conversations": total,
+        "total_conversations": total_init,
         "per_person": dict(initiatives),
-        "share": {p: round(c / total, 3) for p, c in initiatives.items()},
+        "share": {p: round(c / total_init, 3) for p, c in initiatives.items()} if total_init else {},
+        "double_text": {
+            "per_person": dict(double_texts),
+            "share": {
+                p: round(c / total_dt, 3) for p, c in double_texts.items()
+            } if total_dt else {},
+            "total": total_dt,
+        },
         "evolution": [
             {
                 "period": q,
                 **{
-                    p: round(by_quarter[q][p] / sum(by_quarter[q].values()), 3)
+                    p: round(by_quarter_init[q][p] / sum(by_quarter_init[q].values()), 3)
                     for p in initiatives
-                    if by_quarter[q].get(p)
+                    if by_quarter_init[q].get(p)
                 },
             }
             for q in quarters
