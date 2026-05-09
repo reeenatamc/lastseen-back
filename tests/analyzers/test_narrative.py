@@ -202,6 +202,7 @@ def test_analyzer_no_api_key_returns_error():
     chat = _make_chat()
     with patch("app.core.config.settings") as mock_settings:
         mock_settings.ANTHROPIC_API_KEY = None
+        mock_settings.GEMINI_API_KEY = None  # both must be absent
         result = NarrativeAnalyzer().analyze(chat, context=MOCK_CONTEXT)
 
     assert result.data["error"] == "not_configured"

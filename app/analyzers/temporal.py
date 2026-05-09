@@ -110,54 +110,75 @@ def _response_time(msgs: list[ParsedMessage]) -> dict:
 
 def _initiative_balance(msgs: list[ParsedMessage]) -> dict:
     """
-    Classifies each gap > _INITIATIVE_GAP into one of three buckets:
+    Classifies each gap > _INITIATIVE_GAP into three buckets:
 
-    - initiated:   first message after mutual silence (the other person
-                   was the last to speak before the gap).
-    - double_text: follow-up after own unanswered message (same person
-                   was last to speak before the gap).
-    - late_reply:  (not counted as initiative — it's a delayed response)
+    - initiative:   previous block had a mutual exchange (different senders
+                    opened and closed it) → whoever speaks first genuinely
+                    chose to start a new conversation.
+    - late_reply:   previous block was opened and closed by the same person
+                    (their message went unanswered) → the other person
+                    speaking is finally responding, not initiating.
+    - double_text:  same person speaks again after their own unanswered
+                    message.
 
-    This correctly handles the case where A messages, B takes 5 h to
-    reply, and B's reply was previously mis-counted as B "initiating".
+    Heuristic: a block is "complete" when its opener ≠ its last speaker,
+    meaning the conversation had a mutual back-and-forth and ended
+    naturally. A block where opener == last_speaker means the opener
+    had the last word with no reply.
     """
     initiatives: dict[str, int] = defaultdict(int)
+    late_replies: dict[str, int] = defaultdict(int)
     double_texts: dict[str, int] = defaultdict(int)
     by_quarter_init: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
 
     blocks = _split_into_blocks(msgs)
 
-    # blocks[0] has no "previous speaker" — whoever opens is the initiator
+    # First block has no context — unconditional initiative
     if blocks:
         opener = blocks[0][0].sender
         initiatives[opener] += 1
         by_quarter_init[_quarter(blocks[0][0].timestamp)][opener] += 1
 
     for prev_block, curr_block in zip(blocks, blocks[1:]):
-        last_speaker = prev_block[-1].sender
+        block_opener  = prev_block[0].sender
+        last_speaker  = prev_block[-1].sender
         first_speaker = curr_block[0].sender
 
         if first_speaker == last_speaker:
-            # Same person speaks again after a gap — double text
             double_texts[first_speaker] += 1
+
+        elif block_opener == last_speaker:
+            # The same person who opened the block also had the last word —
+            # their message went unanswered. The other person responding is
+            # a late reply, not a genuine initiative.
+            late_replies[first_speaker] += 1
+
         else:
-            # Different person breaks the silence — real initiative
+            # The block closed with a mutual exchange (opener ≠ last_speaker).
+            # Whoever speaks first after the gap is genuinely starting fresh.
             initiatives[first_speaker] += 1
             by_quarter_init[_quarter(curr_block[0].timestamp)][first_speaker] += 1
 
     total_init = sum(initiatives.values())
-    total_dt = sum(double_texts.values())
-    quarters = sorted(by_quarter_init)
+    total_lr   = sum(late_replies.values())
+    total_dt   = sum(double_texts.values())
+    quarters   = sorted(by_quarter_init)
+
+    def _share(counts: dict[str, int], total: int) -> dict[str, float]:
+        return {p: round(c / total, 3) for p, c in counts.items()} if total else {}
 
     return {
         "total_conversations": total_init,
         "per_person": dict(initiatives),
-        "share": {p: round(c / total_init, 3) for p, c in initiatives.items()} if total_init else {},
+        "share": _share(initiatives, total_init),
+        "late_reply": {
+            "per_person": dict(late_replies),
+            "share": _share(late_replies, total_lr),
+            "total": total_lr,
+        },
         "double_text": {
             "per_person": dict(double_texts),
-            "share": {
-                p: round(c / total_dt, 3) for p, c in double_texts.items()
-            } if total_dt else {},
+            "share": _share(double_texts, total_dt),
             "total": total_dt,
         },
         "evolution": [
