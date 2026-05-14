@@ -1,3 +1,6 @@
+import secrets
+
+import bcrypt
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from slowapi import _rate_limit_exceeded_handler
@@ -16,10 +19,18 @@ from app.api.v1 import router as api_v1_router
 class AdminAuth(AuthenticationBackend):
     async def login(self, request: Request) -> bool:
         form = await request.form()
-        if (
-            form.get("username") == settings.ADMIN_USERNAME
-            and form.get("password") == settings.ADMIN_PASSWORD
-        ):
+        username = form.get("username") or ""
+        password = form.get("password") or ""
+        username_ok = secrets.compare_digest(
+            username.encode(), settings.ADMIN_USERNAME.encode()
+        )
+        try:
+            password_ok = bcrypt.checkpw(
+                password.encode(), settings.ADMIN_PASSWORD_HASH.encode()
+            )
+        except ValueError:
+            password_ok = False
+        if username_ok and password_ok:
             request.session["authenticated"] = True
             return True
         return False

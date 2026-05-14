@@ -19,8 +19,8 @@ class Settings(BaseSettings):
     GEMINI_API_KEY: str | None = None
     GEMINI_MODEL: str = "gemini-2.5-flash"
 
-    ADMIN_USERNAME: str = "admin"
-    ADMIN_PASSWORD: str = "changeme"
+    ADMIN_USERNAME: str
+    ADMIN_PASSWORD_HASH: str
 
     SECRET_KEY: str
     ALGORITHM: str = "HS256"

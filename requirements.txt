@@ -27,7 +27,7 @@ slowapi==0.1.9
 # Admin panel
 sqladmin>=0.18.0
 itsdangerous>=2.1.0
-starlette==0.41.2
+starlette==0.38.2
 
 # Narrative generation — Claude (primary) or Gemini (fallback)
 anthropic>=0.34.0
