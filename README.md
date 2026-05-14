@@ -163,6 +163,59 @@ Opt-in data layer for trend analysis — when do conversations die, what pattern
 
 <br/>
 
+## Run locally
+
+```bash
+# 1. Generate secrets for .env
+python3 -c "import secrets; print('SECRET_KEY=' + secrets.token_urlsafe(48))"
+python3 -c "import bcrypt; print('ADMIN_PASSWORD_HASH=' + bcrypt.hashpw(b'<your-password>', bcrypt.gensalt()).decode())"
+
+# 2. Create .env (required keys)
+#    DATABASE_URL=postgresql+asyncpg://postgres:postgres@db:5432/lastseen
+#    REDIS_URL=redis://redis:6379/0
+#    CELERY_BROKER_URL=redis://redis:6379/0
+#    CELERY_RESULT_BACKEND=redis://redis:6379/0
+#    SECRET_KEY=...                  (from step 1)
+#    ADMIN_USERNAME=admin
+#    ADMIN_PASSWORD_HASH=...         (from step 1)
+#    ANTHROPIC_API_KEY=...           (optional — Gemini used as fallback)
+#    GEMINI_API_KEY=...
+
+# 3. Bring up the stack (api · worker · postgres · redis)
+docker compose up --build
+
+# 4. Apply migrations (first time only)
+docker compose exec api alembic upgrade head
+```
+
+```
+API     → http://localhost:8000
+Admin   → http://localhost:8000/admin
+DB      → localhost:5433
+Redis   → localhost:6380
+```
+
+Run tests:
+
+```bash
+.venv/bin/pytest
+```
+
+Common commands:
+
+```bash
+docker compose logs -f api worker          # tail api + worker logs
+docker compose exec api alembic revision --autogenerate -m "msg"   # new migration
+docker compose down                        # stop everything (keeps volume)
+docker compose down -v                     # stop + drop DB volume
+```
+
+<br/>
+
+---
+
+<br/>
+
 ## Privacy, by design
 
 - Raw messages are **never stored permanently** (table exists for future opt-in only)
