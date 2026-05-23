@@ -19,6 +19,8 @@ class Settings(BaseSettings):
     GEMINI_API_KEY: str | None = None
     GEMINI_MODEL: str = "gemini-2.5-flash"
 
+    GOOGLE_CLIENT_ID: str | None = None
+
     ADMIN_USERNAME: str
     ADMIN_PASSWORD_HASH: str
 

@@ -15,6 +15,7 @@ ALLOWED_MIME_TYPES = {"text/plain", "application/zip", "application/json"}
 MAX_FILE_SIZE = 50 * 1024 * 1024  # 50 MB
 
 Platform = Literal["whatsapp", "telegram", "imessage"]
+Language = Literal["auto", "es", "en"]
 
 # Rate limit key: user_id for authenticated users, IP for guests
 def _rate_key(request: Request) -> str:
@@ -44,6 +45,7 @@ async def upload_chat(
     user_id: OptionalUserId,
     file: UploadFile = File(...),
     platform: Platform = Form("whatsapp"),
+    language: Language = Form("auto"),
 ):
     # Expose user_id to the rate key function via request state
     request.state.user_id = user_id
@@ -78,6 +80,7 @@ async def upload_chat(
             analysis_id=analysis.id,
             content=decoded,
             platform=platform,
+            language=language,
         )
         return UploadResponse(analysis_id=analysis.id, status=AnalysisStatus.pending)
 
@@ -85,6 +88,7 @@ async def upload_chat(
         analysis_id=None,
         content=decoded,
         platform=platform,
+        language=language,
     )
     return UploadResponse(task_id=task.id, status="queued")
 

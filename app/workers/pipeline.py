@@ -33,15 +33,27 @@ def _select_parser(content: str, platform: str) -> BaseParser:
     raise ValueError(f"No parser found for platform '{platform}'")
 
 
-def run_pipeline(*, analysis_id: int | None, content: str, platform: str) -> dict:
+def run_pipeline(
+    *,
+    analysis_id: int | None,
+    content: str,
+    platform: str,
+    language: str = "auto",
+) -> dict:
+    if analysis_id is not None:
+        _mark_processing(analysis_id)
+
     try:
         parser = _select_parser(content, platform)
         parsed_chat = parser.parse(content)
 
-        results: dict = {}
+        # `_meta` carries pipeline-level flags (e.g. language) into analyzer
+        # context without polluting saved results — popped before persistence.
+        results: dict = {"_meta": {"language": language}}
         for analyzer in _ANALYZERS:
             result = analyzer.analyze(parsed_chat, context=results)
             results[result.analyzer] = result.data
+        results.pop("_meta", None)
 
         if analysis_id is not None:
             _save_result(analysis_id, results)
@@ -69,6 +81,17 @@ def _save_result(analysis_id: int, results: dict) -> None:
         analysis.status = AnalysisStatus.completed
         analysis.result = results
         db.commit()
+
+
+def _mark_processing(analysis_id: int) -> None:
+    from app.core.database import SyncSession
+    from app.models.analysis import Analysis, AnalysisStatus
+
+    with SyncSession() as db:
+        analysis = db.get(Analysis, analysis_id)
+        if analysis:
+            analysis.status = AnalysisStatus.processing
+            db.commit()
 
 
 def _mark_failed(analysis_id: int, error: str) -> None:

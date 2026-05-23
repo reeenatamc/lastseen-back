@@ -61,7 +61,7 @@ def _mock_pipe(texts: list[str]) -> list[list[dict]]:
 
 def _patched_analyzer():
     """Returns a SentimentAnalyzer with the HuggingFace pipeline mocked."""
-    return patch("app.analyzers.sentiment._get_pipe", return_value=_mock_pipe)
+    return patch("app.analyzers.sentiment._get_multilingual_pipe", return_value=_mock_pipe)
 
 
 # ── per_person ────────────────────────────────────────────────────────────────
@@ -225,3 +225,48 @@ def test_analyzer_skips_media():
     with _patched_analyzer():
         result = SentimentAnalyzer().analyze(chat)
     assert result.data.get("error") == "insufficient_data"
+
+
+# ── language routing ────────────────────────────────────────────────────────
+
+def test_spanish_routes_to_pysentimiento():
+    """When context language is 'es', the Spanish backends are invoked
+    and `emotions_per_person` is populated."""
+    msgs = [
+        _msg("Alice", "qué lindo día", BASE + timedelta(minutes=i)) for i in range(6)
+    ] + [
+        _msg("Bob", "estoy muy triste", BASE + timedelta(minutes=i + 6)) for i in range(6)
+    ]
+    chat = _make_chat(msgs)
+
+    sentiment_outputs = [type("O", (), {"probas": {"POS": 0.9, "NEU": 0.05, "NEG": 0.05}})() for _ in range(12)]
+    emotion_outputs = [type("O", (), {"output": "joy"})() for _ in range(12)]
+
+    with patch("app.analyzers.sentiment._get_es_sentiment") as mock_sent, \
+         patch("app.analyzers.sentiment._get_es_emotion") as mock_emo:
+        mock_sent.return_value.predict.side_effect = lambda batch: sentiment_outputs[:len(batch)]
+        mock_emo.return_value.predict.side_effect = lambda batch: emotion_outputs[:len(batch)]
+
+        result = SentimentAnalyzer().analyze(chat, context={"_meta": {"language": "es"}})
+
+    assert "emotions_per_person" in result.data
+    assert result.data["language"] == "es"
+    assert "pysentimiento" in result.data["model"]
+    mock_sent.assert_called_once()
+    mock_emo.assert_called_once()
+
+
+def test_non_spanish_uses_multilingual_only():
+    """When language != 'es', pysentimiento is NOT loaded and no emotions block is added."""
+    msgs = [_msg("Alice", "positive msg", BASE + timedelta(minutes=i)) for i in range(6)]
+    chat = _make_chat(msgs + [_msg("Bob", "neutral msg", BASE + timedelta(minutes=7))])
+
+    with patch("app.analyzers.sentiment._get_es_sentiment") as mock_sent, \
+         patch("app.analyzers.sentiment._get_es_emotion") as mock_emo, \
+         _patched_analyzer():
+        result = SentimentAnalyzer().analyze(chat, context={"_meta": {"language": "en"}})
+
+    assert "emotions_per_person" not in result.data
+    assert result.data["language"] == "en"
+    mock_sent.assert_not_called()
+    mock_emo.assert_not_called()

@@ -15,8 +15,17 @@ from app.parsers.base import ParsedChat, ParsedMessage
 
 # ── Constants ────────────────────────────────────────────────────────────────
 
-# A new conversation block starts when both sides have been silent for this long
-_INITIATIVE_GAP = timedelta(hours=4)
+# A "conversation block" ends when the pair goes quiet for longer than the
+# block gap. A fixed 4 h is wrong for both extremes: hyper-active couples
+# almost never pause 4 h (≈ everything is one block → initiative meaningless),
+# slow texters always exceed 4 h (≈ every message is its own block). So the
+# threshold adapts to THIS pair's rhythm — the 95th-percentile gap — clamped
+# to a sane band, with a fixed fallback when there isn't enough data to adapt.
+_INITIATIVE_GAP = timedelta(hours=4)             # fallback only (sample too small to adapt)
+_ADAPTIVE_GAP_PCT = 0.95                         # a new conversation = a silence in the pair's top 5%
+_ADAPTIVE_GAP_FLOOR = timedelta(hours=1)         # never split a conversation on a sub-hour lull
+_ADAPTIVE_GAP_CEILING = timedelta(hours=6)       # a > 6 h silence always ends a conversation
+_ADAPTIVE_GAP_MIN_SAMPLE = 30                    # need this many gaps before a rhythm is meaningful
 
 # Beyond this window a delayed message is not counted as a "response"
 _MAX_RESPONSE_WINDOW = timedelta(hours=24)
@@ -158,7 +167,8 @@ def _block_was_sustained(block: list[ParsedMessage]) -> bool:
 
 def _initiative_balance(msgs: list[ParsedMessage]) -> dict:
     """
-    Classifies each gap > _INITIATIVE_GAP into four buckets:
+    Classifies each gap larger than the adaptive block threshold (see
+    _adaptive_gap) into four buckets:
 
     - initiative:      opened a conversation AND stayed to engage
                        (opener responded to the other person at least once).
@@ -217,7 +227,13 @@ def _initiative_balance(msgs: list[ParsedMessage]) -> dict:
     def _share(counts: dict[str, int], total: int) -> dict[str, float]:
         return {p: round(c / total, 3) for p, c in counts.items()} if total else {}
 
+    continuous = _is_continuous_thread(msgs)
+
     return {
+        "confidence": {
+            "level": "low" if continuous else "ok",
+            "reason": "continuous_thread" if continuous else None,
+        },
         "total_conversations": total_init,
         "per_person": dict(initiatives),
         "share": _share(initiatives, total_init),
@@ -334,117 +350,235 @@ def _message_length(msgs: list[ParsedMessage]) -> dict:
     }
 
 
-_DELAY_THRESHOLD = 3 * 3600  # 3 hours in seconds
+# ── response_decay tuning surface ─────────────────────────────────────────────
+# The product-meaningful knobs of the core metric, grouped so they are easy to
+# find and reason about. Changing any of these changes what "decay" means.
+
+_DELAY_THRESHOLD = 3 * 3600          # seconds; a turn handoff slower than this starts to count as neglect
+_RT_HALF_LIFE_SECONDS = 5400         # avg response time that scores 0.5 (90 min)
+_RT_STEEPNESS = 1.2                  # logistic steepness for rt_score
+_SILENCE_GRACE_DAYS = 1.0            # mutual silence at/below this scores 1.0
+_SILENCE_DEAD_DAYS = 3.0             # mutual silence at/above this makes the week's silence 0.0
+_NEGLECT_UNIT_HOURS = 12.0           # a single one-sided wait this long = 1.0 neglect unit
+_NEGLECT_SATURATION = 3.0            # this many neglect units in a week drives neglect_score to 0
+_HEALTH_W_RT = 0.25                  # responsiveness *when present*
+_HEALTH_W_BALANCE = 0.15             # who carries the conversation-starting
+_HEALTH_W_NEGLECT = 0.30             # one-sided abandonment (volume-robust)
+_HEALTH_W_SILENCE = 0.30             # mutual silence — weights sum to 1.0
+_TREND_DELTA = 0.12                  # symmetric trend threshold
+_TURNING_POINT_MIN_DROP = 0.15       # min leading-vs-trailing health drop to flag a turning point
+
+
+def _iter_turn_handoffs(msgs: list[ParsedMessage]):
+    """
+    Yield (responder, gap_seconds, response_timestamp) for every turn handoff.
+
+    A *turn* is a maximal run of consecutive messages from the same sender.
+    The gap is measured from the END of one turn to the START of the next
+    (the other person's) turn. This is the single shared definition of a
+    conversational turn — both _response_decay and _delayed_replies consume it
+    so their numbers are directly comparable.
+    """
+    i = 0
+    n = len(msgs)
+    while i < n:
+        sender = msgs[i].sender
+        j = i + 1
+        while j < n and msgs[j].sender == sender:
+            j += 1
+        if j < n:
+            gap = (msgs[j].timestamp - msgs[j - 1].timestamp).total_seconds()
+            yield msgs[j].sender, gap, msgs[j].timestamp
+        i = j
+
+
+def _rt_score(avg_rt: float | None) -> float:
+    """Logistic on avg response time: seconds/minutes → ~1.0, 90 min → 0.5,
+    ≥24 h → ~0. No response data for the month → 0.0 (silence is not health)."""
+    if avg_rt is None:
+        return 0.0
+    return 1.0 / (1.0 + (avg_rt / _RT_HALF_LIFE_SECONDS) ** _RT_STEEPNESS)
+
+
+def _silence_score(max_gap_days: float | None) -> float:
+    """1.0 while contact stays roughly daily, linearly down to 0.0 once the
+    longest mutual silence in the week reaches _SILENCE_DEAD_DAYS."""
+    if max_gap_days is None:
+        return 1.0
+    span = _SILENCE_DEAD_DAYS - _SILENCE_GRACE_DAYS
+    return max(0.0, min(1.0, 1.0 - max(0.0, max_gap_days - _SILENCE_GRACE_DAYS) / span))
+
+
+def _neglect_score(units: float) -> float:
+    """
+    One-sided abandonment, volume-robust.
+
+    rt_score / delay_rate are *averages or rates* — thousands of instant
+    burst replies wash out the handful of multi-hour ghostings, so a chat
+    where one person was repeatedly left waiting for hours still scores
+    "fast". neglect counts the bad episodes directly instead of diluting
+    them by total volume.
+
+    Each turn handoff slower than _DELAY_THRESHOLD (but within the 24 h
+    window — beyond that it is silence, handled separately) contributes
+    `min(wait_hours / _NEGLECT_UNIT_HOURS, 1.0)` units, so a 12 h+ ghosting
+    counts ~5× a 3 h one. _NEGLECT_SATURATION units in a week → 0.0.
+    """
+    return max(0.0, min(1.0, 1.0 - units / _NEGLECT_SATURATION))
 
 
 def _response_decay(msgs: list[ParsedMessage]) -> dict:
     """
     Core LastSeen metric: detects progressive deterioration of reciprocity.
 
-    Health score components (per month):
-      - response_time  (40%) — how fast people respond
-      - initiative     (30%) — how balanced the conversation-starting is
-      - delay_rate     (30%) — how often someone made the other wait > 3h
+    Aggregation is per ISO week (Mon–Sun). Weeks are calendar-aligned and
+    sortable as strings; week-level resolution lets the metric speak on short,
+    intense chats (a real 11-day conversation is ~2 weeks, not 1 month).
 
-    decay_score: 0.0 (healthy) → 1.0 (fully decayed)
+    Per-week health is a single weighted sum in [0, 1] (weights sum to 1):
+      - rt_score      (0.25) — logistic on avg response time *when present*
+      - balance       (0.15) — 1 − initiative imbalance
+      - neglect_score (0.30) — one-sided multi-hour abandonment, volume-robust
+      - silence_score (0.30) — penalises the longest mutual silence in the week
+
+    rt_score and silence are deliberately blind to one-sided neglect: an
+    average is dragged down by burst replies, and one person spamming an
+    absent partner produces no mutual-silence gap at all. neglect_score is
+    the signal that actually sees "they were left waiting for hours while
+    reaching out" — it counts severity-weighted episodes, not a rate, so a
+    high message volume cannot mask it.
+
+    Any component with no data for the week contributes 0 (absence of activity
+    is not health). There is deliberately no separate "inactive week" constant
+    — a fully silent week falls out near 0 on its own. Silence is measured at
+    timestamp resolution, so a 3-day gap inside an otherwise active week is
+    still caught.
+
+    decay_score: 0.0 (healthy) → 1.0 (fully decayed), from the recent third.
     """
-    monthly_rt: dict[str, list[float]] = defaultdict(list)
-    monthly_msgs: dict[str, int] = defaultdict(int)
-    monthly_turns: dict[str, int] = defaultdict(int)
-    monthly_delayed: dict[str, int] = defaultdict(int)
+    weekly_rt: dict[str, list[float]] = defaultdict(list)
+    weekly_msgs: dict[str, int] = defaultdict(int)
+    weekly_turns: dict[str, int] = defaultdict(int)
+    weekly_delayed: dict[str, int] = defaultdict(int)
+    weekly_neglect: dict[str, float] = defaultdict(float)
+    weekly_max_gap: dict[str, float] = {}
 
     for m in msgs:
-        monthly_msgs[_month(m.timestamp)] += 1
+        weekly_msgs[_week(m.timestamp)] += 1
 
+    # Mutual silence: longest gap between *any* consecutive messages, attributed
+    # to the week of the message that broke the silence. The trailing edge of
+    # the data has no following message, so a chat that simply stops exporting
+    # is never penalised here ("except if it's the end of the conversation").
     for i in range(1, len(msgs)):
-        prev, curr = msgs[i - 1], msgs[i]
-        secs = (curr.timestamp - prev.timestamp).total_seconds()
+        gap_days = (msgs[i].timestamp - msgs[i - 1].timestamp).total_seconds() / 86400
+        wk = _week(msgs[i].timestamp)
+        if gap_days > weekly_max_gap.get(wk, 0.0):
+            weekly_max_gap[wk] = gap_days
 
-        if prev.sender != curr.sender:
-            # Cross-sender gap: track response time and delayed turns
-            if 0 < secs <= _MAX_RESPONSE_WINDOW.total_seconds():
-                monthly_rt[_month(curr.timestamp)].append(secs)
-            monthly_turns[_month(curr.timestamp)] += 1
-            if secs > _DELAY_THRESHOLD:
-                monthly_delayed[_month(curr.timestamp)] += 1
+    # Response time, delay and neglect all read the same turn-handoff stream.
+    # neglect: a handoff in the 3 h–24 h window is a one-sided wait; its
+    # severity is the wait length, saturating at _NEGLECT_UNIT_HOURS so a
+    # single catastrophic ghosting cannot count as more than one full unit.
+    for responder, gap, ts in _iter_turn_handoffs(msgs):
+        wk = _week(ts)
+        weekly_turns[wk] += 1
+        if 0 < gap <= _MAX_RESPONSE_WINDOW.total_seconds():
+            weekly_rt[wk].append(gap)
+        if _DELAY_THRESHOLD < gap <= _MAX_RESPONSE_WINDOW.total_seconds():
+            weekly_delayed[wk] += 1
+            wait_hours = gap / 3600
+            weekly_neglect[wk] += min(wait_hours / _NEGLECT_UNIT_HOURS, 1.0)
 
-    monthly_init: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+    weekly_init: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
     for block in _split_into_blocks(msgs):
-        monthly_init[_month(block[0].timestamp)][block[0].sender] += 1
+        weekly_init[_week(block[0].timestamp)][block[0].sender] += 1
 
     participants = sorted({m.sender for m in msgs})
-    all_months = sorted(set(monthly_msgs) | set(monthly_rt) | set(monthly_init))
+    all_weeks = sorted(set(weekly_msgs) | set(weekly_rt) | set(weekly_init))
 
-    if len(all_months) < 2:
+    if len(all_weeks) < 2:
         return {"trend": "insufficient_data"}
 
     evolution = []
-    for month in all_months:
-        avg_rt = round(statistics.mean(monthly_rt[month])) if monthly_rt[month] else None
+    for week in all_weeks:
+        avg_rt = round(statistics.mean(weekly_rt[week])) if weekly_rt[week] else None
 
-        total_init = sum(monthly_init[month].values())
-        if total_init >= 2 and participants:
-            shares = [monthly_init[month].get(p, 0) / total_init for p in participants]
-            imbalance = round(abs(shares[0] - 0.5) * 2, 3)
+        total_init = sum(weekly_init[week].values())
+        if total_init >= 2 and len(participants) == 2:
+            share0 = weekly_init[week].get(participants[0], 0) / total_init
+            imbalance = round(abs(share0 - 0.5) * 2, 3)
         else:
-            imbalance = 0.0
+            # Not enough conversations started to judge balance → treat the
+            # balance dimension as unhealthy, not as a free pass.
+            imbalance = 1.0
 
-        turns = monthly_turns[month]
-        delay_rate = round(monthly_delayed[month] / turns, 3) if turns else 0.0
+        turns = weekly_turns[week]
+        delay_rate = round(weekly_delayed[week] / turns, 3) if turns else 0.0
+        neglect_units = round(weekly_neglect[week], 3)
+        max_gap = weekly_max_gap.get(week)
 
         evolution.append({
-            "period": month,
+            "period": week,
+            "period_start": _week_start(week),
             "avg_response_seconds": avg_rt,
-            "message_count": monthly_msgs[month],
+            "message_count": weekly_msgs[week],
             "initiative_imbalance": imbalance,
             "delay_rate": delay_rate,
+            "neglect_units": neglect_units,
+            "silence_gap_days": round(max_gap, 1) if max_gap is not None else None,
+            "turns": turns,
         })
 
-    # Health score per month: 1.0 = perfect, 0.0 = dead
-    # Months with no response data (rt=None) are inactive months —
-    # penalized as low-health rather than treated as "perfect".
     def _health(e: dict) -> float:
-        if e["avg_response_seconds"] is None:
-            # Inactive month: no cross-sender responses recorded
-            return 0.2
-        rt_score = 1.0 - min(e["avg_response_seconds"] / _MAX_RESPONSE_WINDOW.total_seconds(), 1.0)
-        base = rt_score * 0.5 + (1.0 - e["initiative_imbalance"]) * 0.5
-        delay_penalty = e["delay_rate"] * 0.25
-        return round(max(0.0, base - delay_penalty), 3)
+        rt = _rt_score(e["avg_response_seconds"])
+        balance = 1.0 - e["initiative_imbalance"]
+        neglect = _neglect_score(e["neglect_units"])
+        silence = _silence_score(e["silence_gap_days"])
+        h = (
+            rt * _HEALTH_W_RT
+            + balance * _HEALTH_W_BALANCE
+            + neglect * _HEALTH_W_NEGLECT
+            + silence * _HEALTH_W_SILENCE
+        )
+        return round(max(0.0, min(1.0, h)), 3)
 
-    health = [_health(e) for e in evolution]
+    for e in evolution:
+        e["health"] = _health(e)
+    health = [e["health"] for e in evolution]
 
-    # Trend: compare first third vs last third
+    # Trend: recent third vs early third, symmetric threshold. The product's
+    # pessimism lives in the health formula and silence decay, not here — this
+    # classifier stays honest.
     third = max(1, len(health) // 3)
-    early_health = statistics.mean(health[:third])
-    late_health = statistics.mean(health[-third:])
-    delta = late_health - early_health
-
-    if delta < -0.15:
+    delta = statistics.mean(health[-third:]) - statistics.mean(health[:third])
+    if delta < -_TREND_DELTA:
         trend = "deteriorating"
-    elif delta > 0.10:
+    elif delta > _TREND_DELTA:
         trend = "improving"
     else:
         trend = "stable"
 
-    # Decay score based on recent state
-    decay_score = round(1.0 - statistics.mean(health[-third:]), 3)
+    decay_score = round(max(0.0, min(1.0, 1.0 - statistics.mean(health[-third:]))), 3)
 
-    # Turning point: month with the biggest single-month health drop.
-    # Suppressed if it falls in the last 20% of the period — that would
-    # just be the edge of the data, not a real inflection point.
-    cutoff_idx = max(1, round(len(evolution) * 0.8))
+    # Turning point: the split that maximises (mean health before) − (mean
+    # health after). Catches slow sustained declines, not just one-week
+    # cliffs. Suppressed in the last 20% — that tail is the export boundary,
+    # not an inflection ("except if it's the end of the conversation").
+    # Reported as the week's start date (YYYY-MM-DD) so the narrative layer
+    # and UI get something human, not an opaque ISO-week code.
+    cutoff_idx = max(1, round(len(health) * 0.8))
     turning_point = None
-    max_drop = 0.05
+    best_drop = _TURNING_POINT_MIN_DROP
     for i in range(1, cutoff_idx):
-        drop = health[i - 1] - health[i]
-        if drop > max_drop:
-            max_drop = drop
-            turning_point = evolution[i]["period"]
+        drop = statistics.mean(health[:i]) - statistics.mean(health[i:])
+        if drop > best_drop:
+            best_drop = drop
+            turning_point = evolution[i]["period_start"]
 
     return {
         "trend": trend,
-        "decay_score": max(0.0, min(1.0, decay_score)),
+        "decay_score": decay_score,
         "turning_point": turning_point,
         "evolution": evolution,
     }
@@ -462,27 +596,16 @@ def _delayed_replies(
     the same sender). If Person B takes > threshold_hours to respond to
     Person A's turn, that's one count for B — regardless of how many
     individual messages A sent in that turn.
+
+    Shares the _iter_turn_handoffs definition with response_decay's delay_rate
+    so the two numbers are directly comparable.
     """
     threshold_secs = threshold_hours * 3600
     delayed: dict[str, int] = defaultdict(int)
 
-    i = 0
-    while i < len(msgs):
-        sender = msgs[i].sender
-        # Advance to end of this turn
-        j = i + 1
-        while j < len(msgs) and msgs[j].sender == sender:
-            j += 1
-
-        turn_end = msgs[j - 1]
-
-        # Check if the next turn from the other person is > threshold away
-        if j < len(msgs):
-            gap_secs = (msgs[j].timestamp - turn_end.timestamp).total_seconds()
-            if gap_secs > threshold_secs:
-                delayed[msgs[j].sender] += 1
-
-        i = j
+    for responder, gap, _ in _iter_turn_handoffs(msgs):
+        if gap > threshold_secs:
+            delayed[responder] += 1
 
     total = sum(delayed.values())
     return {
@@ -497,13 +620,68 @@ def _delayed_replies(
 
 # ── Shared helpers (importable by other analyzers) ────────────────────────────
 
+def _gap_p95_seconds(msgs: list[ParsedMessage]) -> float | None:
+    """
+    The 95th-percentile inter-message gap (seconds), or None when there are
+    too few gaps to infer a rhythm. Single source of truth for both the
+    adaptive block threshold and the continuous-thread check.
+    """
+    if len(msgs) < 2:
+        return None
+    gaps = sorted(
+        (msgs[i].timestamp - msgs[i - 1].timestamp).total_seconds()
+        for i in range(1, len(msgs))
+        if msgs[i].timestamp >= msgs[i - 1].timestamp
+    )
+    if len(gaps) < _ADAPTIVE_GAP_MIN_SAMPLE:
+        return None
+    idx = min(int(len(gaps) * _ADAPTIVE_GAP_PCT), len(gaps) - 1)
+    return gaps[idx]
+
+
+def _adaptive_gap(msgs: list[ParsedMessage]) -> timedelta:
+    """
+    Block-split threshold tuned to this pair's rhythm: the 95th-percentile
+    inter-message gap, clamped to [1 h, 6 h]. Falls back to the fixed
+    _INITIATIVE_GAP when there are too few gaps to infer a rhythm — you
+    cannot read a couple's cadence from a handful of messages.
+    """
+    p95 = _gap_p95_seconds(msgs)
+    if p95 is None:
+        return _INITIATIVE_GAP
+    secs = min(
+        max(p95, _ADAPTIVE_GAP_FLOOR.total_seconds()),
+        _ADAPTIVE_GAP_CEILING.total_seconds(),
+    )
+    return timedelta(seconds=secs)
+
+
+def _is_continuous_thread(msgs: list[ParsedMessage]) -> bool:
+    """
+    True when the pair is in essentially continuous contact: even their
+    95th-percentile pause is below the block floor, so the adaptive gap is
+    clamped *up* to the floor and "conversations separated by silence" is an
+    arbitrary cut. In that regime the initiative breakdown is real but
+    semantically thin — they never really stop talking — so it should be
+    reported as low-confidence rather than read as precise.
+    """
+    p95 = _gap_p95_seconds(msgs)
+    return p95 is not None and p95 < _ADAPTIVE_GAP_FLOOR.total_seconds()
+
+
 def split_into_blocks(
     msgs: list[ParsedMessage],
-    gap: timedelta = _INITIATIVE_GAP,
+    gap: timedelta | None = None,
 ) -> list[list[ParsedMessage]]:
-    """Split a message list into conversation blocks separated by `gap`."""
+    """
+    Split a message list into conversation blocks. With `gap=None` (default)
+    the threshold adapts to the pair's own rhythm (see _adaptive_gap); pass an
+    explicit timedelta to force a fixed threshold.
+    """
     if not msgs:
         return []
+    if gap is None:
+        gap = _adaptive_gap(msgs)
     blocks: list[list[ParsedMessage]] = [[msgs[0]]]
     for msg in msgs[1:]:
         if msg.timestamp - blocks[-1][-1].timestamp > gap:
@@ -524,6 +702,19 @@ def _quarter(dt: datetime) -> str:
 
 def _month(dt: datetime) -> str:
     return f"{dt.year}-{dt.month:02d}"
+
+
+def _week(dt: datetime) -> str:
+    """ISO week key, e.g. 2026-W19. ISO year handles the Dec/Jan boundary;
+    zero-padded week keeps lexical sort == chronological sort."""
+    iso = dt.isocalendar()
+    return f"{iso.year}-W{iso.week:02d}"
+
+
+def _week_start(week_key: str) -> str:
+    """Monday of an ISO week as YYYY-MM-DD (the human-facing label)."""
+    iso_year, iso_week = week_key.split("-W")
+    return datetime.fromisocalendar(int(iso_year), int(iso_week), 1).strftime("%Y-%m-%d")
 
 
 def _p90(values: list[float]) -> float:

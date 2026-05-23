@@ -50,9 +50,11 @@ def decayed_chat() -> ParsedChat:
     """
     30 blocks separated by 2-day gaps.
     First 15: symmetric and quick — sets a healthy baseline.
-    Last 15: Alice always initiates, Bob responds in 2–3.7h (< 4h so he never
-             appears as initiator), conversation is terse and one-sided.
-    The contrast lets _response_decay detect the turning point.
+    Last 15: Alice reaches out (twice, into the void) and Bob ghosts for
+             hours, growing worse (4h → 11h). This is decay as the metric
+             now defines it — one-sided multi-hour abandonment, not a mild
+             slowdown — so neglect_score, not avg response time, is what
+             drives the drop.
     """
     msgs = []
     for block in range(30):
@@ -66,11 +68,13 @@ def decayed_chat() -> ParsedChat:
                 _msg(resp, "was really good!", t + timedelta(minutes=15)),
             ]
         else:
-            # 120 min growing to 210 min — never exceeds the 240-min initiative gap
-            response_mins = 120 + (block - 15) * 6
+            # Bob's ghost grows from 5h to 12h; the handoff that counts is
+            # Alice's last reach-out → Bob's reply (≈ ghost − 1h, always > 3h).
+            ghost_hours = 5 + (block - 15) * 0.5
             msgs += [
                 _msg("Alice", "hey", t),
-                _msg("Bob", "k", t + timedelta(minutes=response_mins)),
+                _msg("Alice", "you there?", t + timedelta(hours=1)),
+                _msg("Bob", "k", t + timedelta(hours=ghost_hours)),
             ]
     return _make_chat(msgs)
 
@@ -144,6 +148,24 @@ def test_initiative_balance_decayed():
         + ib["abandoned_open"]["per_person"].get("Bob", 0)
     )
     assert alice_effort > bob_effort
+
+
+def test_initiative_confidence_low_for_continuous_thread():
+    # 40 messages 10 min apart: the 95th-pct gap is well below the 1 h block
+    # floor, so "conversations" are an arbitrary cut → low confidence.
+    msgs = [
+        _msg("Alice" if i % 2 == 0 else "Bob", "x", BASE + timedelta(minutes=10 * i))
+        for i in range(40)
+    ]
+    ib = _initiative_balance(_make_chat(msgs).messages)
+    assert ib["confidence"]["level"] == "low"
+    assert ib["confidence"]["reason"] == "continuous_thread"
+
+
+def test_initiative_confidence_ok_for_spaced_chat():
+    ib = _initiative_balance(healthy_chat().messages)
+    assert ib["confidence"]["level"] == "ok"
+    assert ib["confidence"]["reason"] is None
 
 
 def test_initiative_structure_has_late_reply():

@@ -34,7 +34,7 @@
 
 <br/>
 
-FastAPI + Celery pipeline that parses exported WhatsApp chats, runs three layers of analysis — temporal, emotional, narrative — and returns a structured JSON that the frontend turns into a story.
+FastAPI + Celery pipeline that parses exported WhatsApp chats, runs three layers of analysis — **temporal**, **emotional**, **narrative** — and returns a structured JSON that the frontend turns into a story.
 
 <br/>
 
@@ -48,24 +48,30 @@ FastAPI + Celery pipeline that parses exported WhatsApp chats, runs three layers
  .txt file
     │
     ▼
- PARSER ────────────────────────────────────────────────────────
- WhatsApp · Telegram · iMessage                                 │
-    │                                                           │
-    ▼                                                           │
- ANALYZERS (in memory — raw messages never leave)              │
-    │                                                           │
-    ├── temporal.py ── response time · initiative balance       │
-    │                  double text · response decay             │
-    │                  silence map · activity patterns          │
-    │                                                           │
-    ├── sentiment.py ── HuggingFace multilingual DistilBERT     │
-    │                   tone per person · emotional drift       │
-    │                                                           │
-    └── narrative.py ── Claude API (metrics only, never text)   │
-                        5-field emotional interpretation        │
-    │                                                           │
-    ▼                                                           │
- result JSON ──────────────────────────────────────────────── BD
+ PARSER ─────────────────────────────────────────────────────────────
+ WhatsApp · Telegram · iMessage                                      │
+    │                                                                │
+    ▼                                                                │
+ ANALYZERS (in memory — raw messages never leave)                    │
+    │                                                                │
+    ├── temporal.py ──── response time · initiative balance          │
+    │                    double text · response decay                │
+    │                    silence map · activity patterns             │
+    │                    delayed replies (>3h)                       │
+    │                                                                │
+    ├── sentiment.py ─── language router → hybrid stack              │
+    │      │              ┌─ pysentimiento (RoBERTuito ES)           │
+    │      ├─ if es ──────┤  + NRC + AFINN lexicons (7.6k words)     │
+    │      │              ├─ + intimate-couple vocab (~250 entries)  │
+    │      │              └─ + emoji sentiment (Kralj Novak 2015)    │
+    │      │                                                          │
+    │      └─ else ───── distilbert multilingual (baseline)          │
+    │                                                                │
+    └── narrative.py ─── Claude / Gemini  (metrics only — no text)   │
+                         5-field emotional interpretation             │
+    │                                                                │
+    ▼                                                                │
+ result JSON ───────────────────────────────────────────────────── DB
 ```
 
 </div>
@@ -81,6 +87,7 @@ FastAPI + Celery pipeline that parses exported WhatsApp chats, runs three layers
 ```
 POST   /api/v1/auth/register        create account
 POST   /api/v1/auth/token           login → JWT
+POST   /api/v1/auth/google          Google Sign-In (ID token) → JWT
 GET    /api/v1/auth/me              current user
 
 POST   /api/v1/upload/              upload .txt → queues Celery task
@@ -103,16 +110,38 @@ GET    /admin                       SQLAdmin panel
 ## What the analyzers measure
 
 **→ Initiative balance**
-Who actually starts conversations — not just who messages first, but who breaks the silence after the other person was the last to speak. Plus double text tracking: who followed up unanswered.
+Who actually starts conversations — not just who messages first, but who breaks the silence after the other person was the last to speak. Plus double text tracking: who followed up unanswered. Auto-flags `low_confidence` on continuous-thread chats so the metric is honest about when it can't speak.
 
 **→ Response decay**
-Are response times getting longer? Is reciprocity deteriorating? A score from 0 to 1, with quarterly evolution and a turning point.
+Are response times getting longer? Is reciprocity deteriorating? A score from 0 to 1 with per-ISO-week evolution and a turning point. Catches slow sustained declines, not just one-week cliffs.
+
+**→ Response time + consistency**
+Per-person mean, median, p90 and a `consistency_score` — % of replies within 1h. Low consistency reveals hot-and-cold patterns even when the average looks healthy.
+
+**→ Delayed replies**
+Times each person made the other wait more than 3 hours mid-conversation, volume-robust so a high-volume reply burst can't mask occasional ghostings.
+
+**→ Hybrid sentiment (Spanish)**
+RoBERTuito on its own under-rates affection ("amor", diminutives, ❤️) because it learned its valence from Twitter. The Spanish path fuses four signals per message:
+
+```
+ base ML score   (pysentimiento)    weight 0.38
+ NRC + AFINN ES  (7.6k words)       weight 0.20   abstains if no match
+ intimate vocab  (~250 entries)     weight 0.32   abstains if no match
+ emoji sentiment (970 emojis)       weight 0.10   abstains if no emoji
+                                    ─────────────
+                                    weights renormalised on abstention
+                                    × orthographic-emphasis multiplier
+                                    × clamp to [-1, +1]
+```
+
+Result: avg-score uplifts of ≈ +0.10 over plain pysentimiento on real intimate chats, and a typical jump from `dominant=neutral` to `dominant=positive` for the more expressive partner. See `app/analyzers/lexicons/CITATIONS.md` for the data sources and licenses.
 
 **→ Emotional drift**
-How aligned are the emotional tones of both people over time? Measured via multilingual sentiment analysis across up to 2000 sampled messages.
+How aligned both people's tones are over time, with a per-chat drift score and a direction label. Up to 2000 sampled messages, sampled uniformly to preserve the temporal distribution.
 
 **→ Narrative**
-Five-field interpretation generated by Claude — overview, dynamic, turning point, current state, reflection. Only aggregated metrics reach the API — never message content.
+Five-field interpretation generated by Claude (or Gemini as fallback) — *resumen, dinamica, punto_de_quiebre, estado_actual, reflexion*. Only aggregated metrics reach the LLM — never message content, never names sent to anyone external (the metrics ARE labeled with participant names so the narrative can address them by name; that's the only thing that crosses the wire).
 
 <br/>
 
@@ -131,6 +160,9 @@ Multi-participant analysis. Who holds the group together. Who went quiet first. 
 **→ Telegram and iMessage**
 Parsers already built. Full pipeline support coming with v2.
 
+**→ Per-domain calibrated sentiment**
+The current hybrid layer is calibrated for intimate couple Spanish. v2 extends to friend chats, family, and work chats — each with its own intimate-vocab module.
+
 **→ Message storage (opt-in)**
 For users who want search, history replay, and richer analysis over time. Explicit consent required. Off by default.
 
@@ -148,14 +180,50 @@ Opt-in data layer for trend analysis — when do conversations die, what pattern
 | Layer | Technology |
 |---|---|
 | API | FastAPI · Python 3.11 · Uvicorn |
-| Queue | Celery · Redis |
+| Queue | Celery · Redis (prefork pool, soft/hard time limits) |
 | Database | PostgreSQL · SQLAlchemy 2.0 · Alembic |
-| Parsers | WhatsApp · Telegram · iMessage |
-| NLP | HuggingFace Transformers (distilbert multilingual) |
-| AI | Claude API (claude-haiku-4-5, configurable) |
+| Parsers | WhatsApp (Android + iOS) · Telegram · iMessage |
+| NLP base | HuggingFace Transformers · `pysentimiento` (RoBERTuito ES) · distilbert multilingual |
+| NLP overlay | NRC + AFINN ES lexicons · Emoji Sentiment Ranking · curated intimate-Spanish vocab |
+| Language ID | `langdetect` (seeded, deterministic) |
+| LLM | Anthropic Claude (primary) · Google Gemini (fallback) — both with explicit 60 s timeouts |
 | Admin | SQLAdmin |
-| Auth | JWT · bcrypt |
+| Auth | JWT · bcrypt · Google Sign-In (ID-token verification) |
 | Deploy | Docker · Railway → AWS |
+
+<br/>
+
+---
+
+<br/>
+
+## Repo layout
+
+```
+app/
+├── api/v1/routes/        auth · upload · analysis · payments
+├── core/                 config · database · dependencies (DI)
+├── models/               SQLAlchemy: user · analysis · message
+├── parsers/              base + whatsapp/telegram/imessage
+├── analyzers/
+│   ├── temporal.py       pure functions over parsed messages
+│   ├── sentiment.py      language router + hybrid Spanish stack
+│   ├── narrative.py      Claude/Gemini call with 60 s timeout
+│   └── lexicons/         hybrid sentiment overlay
+│       ├── lexicon_es.csv      NRC + AFINN merged (7.6k words)
+│       ├── emoji_sentiment.csv Emoji Sentiment Ranking 1.0
+│       ├── intimate_es.py      curated couple-chat vocab (~250)
+│       ├── loader.py           lazy cached CSV loaders
+│       ├── scorer.py           4-layer late-fusion scorer
+│       └── CITATIONS.md        sources + licenses (read this!)
+├── workers/              pipeline.py + Celery tasks.py
+└── admin/                SQLAdmin views
+tests/
+├── parsers/              format-specific parser tests
+└── analyzers/
+    ├── test_temporal.py · test_sentiment.py · test_narrative.py
+    └── lexicons/test_scorer.py   25 unit tests for the hybrid stack
+```
 
 <br/>
 
@@ -178,11 +246,13 @@ python3 -c "import bcrypt; print('ADMIN_PASSWORD_HASH=' + bcrypt.hashpw(b'<your-
 #    SECRET_KEY=...                  (from step 1)
 #    ADMIN_USERNAME=admin
 #    ADMIN_PASSWORD_HASH=...         (from step 1)
+#    ACCESS_TOKEN_EXPIRE_MINUTES=10080   (7 days; default 30 min is too short for the analysis loop)
 #    ANTHROPIC_API_KEY=...           (optional — Gemini used as fallback)
 #    GEMINI_API_KEY=...
+#    GOOGLE_CLIENT_ID=...            (optional — required only for Google Sign-In)
 
 # 3. Bring up the stack (api · worker · postgres · redis)
-docker compose up --build
+docker compose up -d --build --wait
 
 # 4. Apply migrations (first time only)
 docker compose exec api alembic upgrade head
@@ -195,10 +265,10 @@ DB      → localhost:5433
 Redis   → localhost:6380
 ```
 
-Run tests:
+Run the test suite (43 tests total):
 
 ```bash
-.venv/bin/pytest
+docker compose exec worker python -m pytest tests/ -v
 ```
 
 Common commands:
@@ -210,6 +280,8 @@ docker compose down                        # stop everything (keeps volume)
 docker compose down -v                     # stop + drop DB volume
 ```
 
+**First-run note:** the worker downloads ~1.4 GB of HuggingFace model weights on the first Spanish analysis (RoBERTuito sentiment + emotion). Subsequent runs reuse the in-container cache.
+
 <br/>
 
 ---
@@ -218,13 +290,29 @@ docker compose down -v                     # stop + drop DB volume
 
 ## Privacy, by design
 
-- Raw messages are **never stored permanently** (table exists for future opt-in only)
-- Message content is **never sent to any external API**
-- Claude receives only aggregated metrics — no text, no names, no dates
-- Processing is ephemeral — result JSON is all that persists
+- Raw messages are **never stored permanently** (the `messages` table exists for the future opt-in feature only — currently unused by the pipeline)
+- Message content **never leaves the worker process** — pysentimiento, NRC, AFINN, intimate-vocab and emoji scoring all run in-memory
+- Claude/Gemini receive **only aggregated metrics** — counts, percentages, response times, drift scores, participant names
+- Processing is ephemeral — the result JSON is all that persists
+- Time limits on every external call (Anthropic and Gemini SDKs configured with `timeout=60 s`) so a hung API can never block the worker
 - Opt-in data features require explicit user consent at every step
 
 *You share something intimate. We treat it that way.*
+
+<br/>
+
+---
+
+<br/>
+
+## Citations
+
+The hybrid sentiment scorer stands on four published resources. **Read [`app/analyzers/lexicons/CITATIONS.md`](app/analyzers/lexicons/CITATIONS.md) before any commercial use** — the NRC lexicon is licensed for research-only and requires a separate agreement for commercial deployment.
+
+- Kralj Novak P. et al. *Sentiment of Emojis.* PLOS ONE (2015). CC BY-SA 4.0.
+- Mohammad S.M., Turney P.D. *Crowdsourcing a Word-Emotion Association Lexicon.* Comp. Intelligence (2013). Research-only.
+- Nielsen F.Å. *A new ANEW.* ESWC (2011). ODbL.
+- Aragón M.E. et al. *Improved emotion recognition in Spanish social media through the incorporation of lexical knowledge.* Future Generation Computer Systems (2020). — methodology reference for the hybrid lexicon-ML fusion.
 
 <br/>
 
@@ -250,7 +338,7 @@ The anonymized aggregate layer is a separate data product — opt-in, never tied
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   v0.1  parsers + temporal analyzer   [ ████████ ]
   v0.2  sentiment + pipeline + API    [ ████████ ]
-  v0.3  narrative AI + admin          [ ██████░░ ]
+  v0.3  narrative + hybrid sentiment  [ ████████ ]
   v0.4  payments (Stripe)             [ ░░░░░░░░ ]
   v1.0  public launch                 [ ░░░░░░░░ ]
   v2.0  dead chat · groups · opt-in   [ ░░░░░░░░ ]

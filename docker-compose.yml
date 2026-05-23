@@ -21,7 +21,12 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-    command: celery -A app.workers.tasks.celery_app worker --loglevel=info
+    # --concurrency=1 → only one worker process (no RAM duplication of ML models).
+    # prefork (default) is required so Celery can enforce soft_time_limit/time_limit;
+    # the solo pool runs in the main thread and can't be interrupted, which lets
+    # tasks hang forever (e.g. on a stuck network call to Claude/Gemini).
+    command: celery -A app.workers.tasks.celery_app worker --loglevel=info --concurrency=1
+    restart: on-failure
     volumes:
       - .:/app
 
