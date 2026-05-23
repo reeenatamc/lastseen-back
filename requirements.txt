@@ -20,6 +20,7 @@ redis==5.1.1
 # Auth
 python-jose[cryptography]==3.3.0
 bcrypt==4.2.1
+google-auth==2.35.0
 
 # Rate limiting
 slowapi==0.1.9
@@ -37,6 +38,10 @@ google-genai>=1.0.0
 transformers==4.44.2
 torch==2.2.2
 numpy<2
+# pysentimiento — Spanish sentiment + emotion (BETO-based, Twitter-trained)
+pysentimiento==0.7.3
+# langdetect — auto-detect language when user selects "auto"
+langdetect==1.0.9
 
 # Testing
 pytest==8.3.3

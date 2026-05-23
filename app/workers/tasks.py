@@ -1,4 +1,5 @@
 from celery import Celery
+from celery.exceptions import SoftTimeLimitExceeded
 
 from app.core.config import settings
 
@@ -15,17 +16,50 @@ celery_app.conf.update(
     timezone="UTC",
     enable_utc=True,
     task_track_started=True,
+    # Acknowledge only after the task completes so that if the worker
+    # crashes mid-task the message is requeued instead of being lost.
+    task_acks_late=True,
+    task_reject_on_worker_lost=True,
+    # Process one task at a time to avoid OOM from multiple ML model copies.
+    worker_prefetch_multiplier=1,
 )
 
+_SOFT_LIMIT = 900   # 15 min: raises SoftTimeLimitExceeded → clean _mark_failed.
+                    # Bumped from 5 min because pysentimiento (es) runs BOTH a
+                    # sentiment and an emotion BETO model in series, which on
+                    # CPU is ~3-4× slower than the distilbert-multilingual
+                    # fallback. A 2000-sample run can take ~10-12 min.
+_HARD_LIMIT = 1200  # 20 min: SIGKILL if soft limit ignored. Soft is often
+                    # swallowed inside transformers/datasets multiprocessing,
+                    # so hard is the real backstop.
 
-@celery_app.task(bind=True, name="process_chat_upload")
+
+@celery_app.task(
+    bind=True,
+    name="process_chat_upload",
+    soft_time_limit=_SOFT_LIMIT,
+    time_limit=_HARD_LIMIT,
+    max_retries=0,
+)
 def process_chat_upload(
     self,
     *,
     analysis_id: int | None,
     content: str,
     platform: str,
+    language: str = "auto",
 ) -> dict:
     from app.workers.pipeline import run_pipeline
 
-    return run_pipeline(analysis_id=analysis_id, content=content, platform=platform)
+    try:
+        return run_pipeline(
+            analysis_id=analysis_id,
+            content=content,
+            platform=platform,
+            language=language,
+        )
+    except SoftTimeLimitExceeded:
+        from app.workers.pipeline import _mark_failed
+        if analysis_id is not None:
+            _mark_failed(analysis_id, "task_timeout: exceeded 5-minute limit")
+        raise

@@ -25,6 +25,15 @@ import anthropic
 from app.analyzers.base import AnalysisResult, BaseAnalyzer
 from app.parsers.base import ParsedChat
 
+# ── Network timeouts ──────────────────────────────────────────────────────────
+# The narrative step is the only analyzer that makes an outbound network call.
+# Without an explicit timeout each SDK falls back to its own default (the
+# Anthropic SDK waits up to 10 min), which can outlast the Celery hard time
+# limit and leave the worker looking hung. A finite timeout turns a stuck
+# request into a clean exception that `analyze()` catches and reports as error.
+_LLM_TIMEOUT_SECONDS = 60.0   # anthropic.Anthropic(timeout=...) — float seconds
+_LLM_TIMEOUT_MS = 60_000      # google-genai HttpOptions(timeout=...) — milliseconds
+
 # ── Schema ────────────────────────────────────────────────────────────────────
 
 _NARRATIVE_SCHEMA = {
@@ -188,7 +197,7 @@ def _build_payload(chat: ParsedChat, context: dict) -> dict:
 # ── Claude API call ───────────────────────────────────────────────────────────
 
 def _call_claude(payload: dict, api_key: str, model: str) -> dict:
-    client = anthropic.Anthropic(api_key=api_key)
+    client = anthropic.Anthropic(api_key=api_key, timeout=_LLM_TIMEOUT_SECONDS)
 
     user_content = (
         "Analiza estas métricas y genera la narrativa emocional:\n\n"
@@ -224,7 +233,10 @@ def _call_gemini(payload: dict, api_key: str, model: str) -> dict:
     from google import genai
     from google.genai import types
 
-    client = genai.Client(api_key=api_key)
+    client = genai.Client(
+        api_key=api_key,
+        http_options=types.HttpOptions(timeout=_LLM_TIMEOUT_MS),
+    )
 
     prompt = (
         _SYSTEM_PROMPT
