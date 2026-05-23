@@ -7,12 +7,23 @@ on:
       - 'app/**'
       - 'tests/**'
       - 'requirements.txt'
+      - '.github/workflows/**'
   pull_request:
     branches: [main]
 
 jobs:
   test:
     runs-on: ubuntu-latest
+
+    # Dummy values to satisfy pydantic Settings() at module-import time.
+    # CI does not connect to any DB or external service — the tests below
+    # are pure Python or FastAPI in-memory. These are NEVER used as real
+    # credentials anywhere; they only exist so `Settings()` constructs.
+    env:
+      DATABASE_URL: "postgresql+asyncpg://ci:ci@localhost:5432/ci"
+      SECRET_KEY: "ci-test-secret-not-used-anywhere-real"
+      ADMIN_USERNAME: "ci"
+      ADMIN_PASSWORD_HASH: "$2b$12$ciCIRequiredAtImportTimeButNeverActuallyVerified."
 
     steps:
       - uses: actions/checkout@v4
@@ -28,13 +39,18 @@ jobs:
             fastapi uvicorn pydantic-settings \
             sqlalchemy asyncpg psycopg2-binary alembic \
             celery redis \
-            python-jose bcrypt \
+            python-jose bcrypt google-auth \
             python-multipart email-validator \
-            slowapi itsdangerous \
+            slowapi itsdangerous sqladmin \
             anthropic \
             pytest pytest-asyncio httpx
 
       - name: Run tests
         run: |
-          pytest tests/parsers/ tests/analyzers/test_temporal.py tests/analyzers/test_narrative.py -v
-        # Sentiment tests excluded — require torch (~2GB), tested locally
+          pytest tests/parsers/ \
+                 tests/analyzers/test_temporal.py \
+                 tests/analyzers/test_narrative.py \
+                 tests/analyzers/lexicons/ \
+                 -v
+        # Sentiment tests excluded — require torch (~2 GB), tested locally.
+        # Lexicon scorer tests included: pure stdlib, no ML deps.
