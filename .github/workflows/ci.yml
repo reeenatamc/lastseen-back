@@ -39,7 +39,7 @@ jobs:
             fastapi uvicorn pydantic-settings \
             sqlalchemy asyncpg psycopg2-binary alembic \
             celery redis \
-            python-jose bcrypt google-auth \
+            python-jose bcrypt 'google-auth[requests]' \
             python-multipart email-validator \
             slowapi itsdangerous sqladmin \
             anthropic \
