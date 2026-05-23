@@ -20,9 +20,6 @@ expresses the intensity of the whole utterance.
 """
 from __future__ import annotations
 
-import re
-from typing import Iterable
-
 from .intimate_es import _WORD_RE, intimate_score
 from .loader import load_emoji_lexicon, load_spanish_lexicon
 

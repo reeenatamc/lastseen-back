@@ -30,7 +30,6 @@ This file is meant to be tunable. Add entries as you read more chats.
 from __future__ import annotations
 
 import re
-import unicodedata
 
 # ── Affectionate vocatives & terms of endearment ────────────────────────────
 # Words/phrases that almost always carry warmth when addressed at someone.
@@ -276,19 +275,21 @@ GENERAL_NEGATIVE: dict[str, float] = {
     "abandonado": -0.6,
 }
 
-# ── All multi-word phrases, merged + flagged as playful or genuine ───────
-# (used for substring lookup before tokenization)
-_PHRASES: dict[str, tuple[float, bool]] = {}  # phrase → (valence, is_playful_negative)
+# ── All multi-word phrases, merged into one substring-lookup table ──────
+# The source dicts (DECLARATIONS, PLAYFUL_NEGATIVE, GENUINE_NEGATIVE, multi-word
+# VOCATIVES) stay separate above for readability; the playful/genuine split
+# does NOT affect scoring (each phrase already carries its calibrated valence
+# directly — playful entries have a deliberately capped negative magnitude).
+_PHRASES: dict[str, float] = {}
 for phrase, val in DECLARATIONS.items():
-    _PHRASES[phrase.lower()] = (val, False)
+    _PHRASES[phrase.lower()] = val
 for phrase, val in PLAYFUL_NEGATIVE.items():
-    _PHRASES[phrase.lower()] = (val, True)
+    _PHRASES[phrase.lower()] = val
 for phrase, val in GENUINE_NEGATIVE.items():
-    _PHRASES[phrase.lower()] = (val, False)
-# Also accept multi-word vocatives as phrases
+    _PHRASES[phrase.lower()] = val
 for phrase, val in VOCATIVES.items():
     if " " in phrase:
-        _PHRASES[phrase.lower()] = (val, False)
+        _PHRASES[phrase.lower()] = val
 
 # ── Single-token vocab (vocatives + general) ─────────────────────────────
 _TOKENS: dict[str, float] = {}
@@ -316,14 +317,6 @@ _REPEAT_CHAR_RE = re.compile(r"([a-záéíóúñü])\1{2,}", re.IGNORECASE)     
 _REPEAT_PUNCT_RE = re.compile(r"([!?¡¿])\1{2,}")                            # "!!!" → match
 _ALL_CAPS_RE = re.compile(r"\b[A-ZÁÉÍÓÚÑÜ]{4,}\b")                          # "AMOR" → match
 
-def _strip_diacritics(s: str) -> str:
-    """For loose matching, optionally strip accents — kept off for now since
-    the lexicon already contains accented entries and we want exact match."""
-    return "".join(
-        c for c in unicodedata.normalize("NFD", s) if unicodedata.category(c) != "Mn"
-    )
-
-
 def _emphasis_multiplier(text: str) -> float:
     """
     Return a magnitude multiplier in [1.0, 1.4] based on orthographic
@@ -345,21 +338,18 @@ def _emphasis_multiplier(text: str) -> float:
 _WORD_RE = re.compile(r"\b[\wáéíóúñüÁÉÍÓÚÑÜ]+\b", re.UNICODE)
 
 
-def _score_phrases(text_lower: str) -> tuple[float, int, bool]:
+def _score_phrases(text_lower: str) -> tuple[float, int]:
     """
-    Returns (sum_of_phrase_valences, count_matched, any_playful_negative).
+    Returns (sum_of_phrase_valences, count_matched).
     Multi-word phrases are matched as substrings on the lowercased text.
     """
     total = 0.0
     count = 0
-    any_playful = False
-    for phrase, (val, is_playful) in _PHRASES.items():
+    for phrase, val in _PHRASES.items():
         if phrase in text_lower:
             total += val
             count += 1
-            if is_playful:
-                any_playful = True
-    return total, count, any_playful
+    return total, count
 
 
 def _score_tokens(text_lower: str) -> tuple[float, int]:
@@ -400,7 +390,7 @@ def intimate_score(text: str) -> tuple[float | None, float]:
     if not text or not text.strip():
         return None, 1.0
     lower = text.lower()
-    p_sum, p_cnt, _ = _score_phrases(lower)
+    p_sum, p_cnt = _score_phrases(lower)
     t_sum, t_cnt = _score_tokens(lower)
     dim_cnt = _diminutive_count(lower)
 
