@@ -1,7 +1,14 @@
 import re
 from datetime import datetime
 
-from app.parsers.base import BaseParser, ParsedChat, ParsedMessage
+from app.parsers.base import (
+    MAX_MESSAGE_CHARS,
+    BaseParser,
+    ParsedChat,
+    ParsedMessage,
+    check_message_count,
+    join_message,
+)
 
 # WhatsApp (especially iOS) injects Unicode bidi / formatting marks around
 # media and system lines, and uses a narrow no-break space as the time
@@ -31,23 +38,76 @@ _IOS_RE = re.compile(
 _DATE_HEAD_RE = re.compile(r"^(\d{1,2})/(\d{1,2})/(\d{2,4})$")
 
 # Compared case-insensitively against mark-stripped content.
+# Maps each attachment placeholder to its media_type.
 _MEDIA_TOKENS = {
-    "<media omitted>",
-    "<archivo adjunto omitido>",
-    "image omitted",
-    "video omitted",
-    "audio omitted",
-    "sticker omitted",
-    "gif omitted",
-    "document omitted",
-    "imagen omitida",
-    "video omitido",
-    "audio omitido",
-    "sticker omitido",
-    "gif omitido",
-    "documento omitido",
+    "<media omitted>": "media",
+    "<archivo adjunto omitido>": "media",
+    "image omitted": "image",
+    "video omitted": "video",
+    "audio omitted": "audio",
+    "sticker omitted": "sticker",
+    "gif omitted": "gif",
+    "document omitted": "document",
+    "video note omitted": "media",
+    "contact card omitted": "media",
+    "imagen omitida": "image",
+    "video omitido": "video",
+    "audio omitido": "audio",
+    "sticker omitido": "sticker",
+    "gif omitido": "gif",
+    "documento omitido": "document",
 }
 _MEDIA_ATTACH_RE = re.compile(r"^<?(attached|adjunto|attached file|archivo adjunto):", re.IGNORECASE)
+
+# Service lines (calls, deletions, blocks). They stay in the message stream so
+# timing metrics see them, but are flagged so text analyzers skip them.
+_CALL_WORD = r"(?:voice call|video call|llamada de voz|videollamada|llamada de v[ií]deo)"
+_MISSED_CALL_RE = re.compile(
+    r"^(?:missed (?:voice|video) call\b.*"
+    rf"|{_CALL_WORD}\.?\s*(?:no answer|sin respuesta)\b.*"
+    r"|(?:llamada de voz|videollamada|llamada de v[ií]deo|llamada) perdida\b.*)$"
+)
+_CALL_RE = re.compile(rf"^{_CALL_WORD}\.?\s*\d+\s*[a-z]+\.?$")
+_DELETED = {
+    "you deleted this message",
+    "this message was deleted",
+    "eliminaste este mensaje",
+    "se eliminó este mensaje",
+}
+_BLOCKED = {
+    "you blocked this person",
+    "you blocked this contact",
+    "bloqueaste a este contacto",
+    "bloqueaste a esta persona",
+}
+_UNBLOCKED = {
+    "you unblocked this person",
+    "you unblocked this contact",
+    "desbloqueaste a este contacto",
+    "desbloqueaste a esta persona",
+}
+# Trailing edit marker; the message itself is still ordinary text.
+_EDITED_RE = re.compile(r"\s*<(?:this message was edited|se editó este mensaje\.?)>\s*$", re.IGNORECASE)
+
+
+def _classify(lowered: str) -> str | None:
+    """Return the media_type of a service/attachment line, or None for text."""
+    if lowered in _MEDIA_TOKENS:
+        return _MEDIA_TOKENS[lowered]
+    if _MEDIA_ATTACH_RE.match(lowered):
+        return "media"
+    bare = lowered.rstrip(". ")
+    if _MISSED_CALL_RE.match(lowered):
+        return "missed_call"
+    if _CALL_RE.match(lowered):
+        return "call"
+    if bare in _DELETED:
+        return "deleted"
+    if bare in _BLOCKED:
+        return "block"
+    if bare in _UNBLOCKED:
+        return "unblock"
+    return None
 
 # Lines that are WhatsApp system messages, not chat content
 _SYSTEM_PATTERNS = re.compile(
@@ -120,14 +180,26 @@ class WhatsAppParser(BaseParser):
         lines = [_normalize_line(ln) for ln in raw.splitlines()]
         order = _detect_date_order(lines)
 
+        # Continuation lines of the last message, joined once when it is complete
+        extra: list[str] = []
+        extra_chars = 0
+
+        def flush() -> None:
+            nonlocal extra, extra_chars
+            if messages:
+                messages[-1].content = join_message(messages[-1].content, extra)
+            extra, extra_chars = [], 0
+
         for line in lines:
             if not line:
                 continue
 
             match = _ANDROID_RE.match(line) or _IOS_RE.match(line)
             if not match:
-                if messages and not _SYSTEM_PATTERNS.search(line):
-                    messages[-1].content += f"\n{line}"
+                # Past the cap the rest would be truncated anyway: stop collecting
+                if messages and not _SYSTEM_PATTERNS.search(line) and extra_chars < MAX_MESSAGE_CHARS:
+                    extra.append(line)
+                    extra_chars += len(line) + 1
                 continue
 
             date_str, time_str, sender, content = match.groups()
@@ -145,8 +217,9 @@ class WhatsAppParser(BaseParser):
             except ValueError:
                 continue
 
-            lowered = content.lower()
-            is_media = lowered in _MEDIA_TOKENS or bool(_MEDIA_ATTACH_RE.match(lowered))
+            flush()
+            content = _EDITED_RE.sub("", content).strip()
+            media_type = _classify(content.lower())
             participants.add(sender)
 
             messages.append(
@@ -154,10 +227,13 @@ class WhatsAppParser(BaseParser):
                     timestamp=timestamp,
                     sender=sender,
                     content=content,
-                    is_media=is_media,
+                    is_media=media_type is not None,
+                    media_type=media_type,
                 )
             )
+            check_message_count(len(messages))
 
+        flush()
         return ParsedChat(
             platform=self.platform,
             participants=sorted(participants),

@@ -2,6 +2,28 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
 
+# A single message longer than this is a pasted document or an attack, not conversation:
+# tone and timing do not need more, and unbounded text inflates memory and LLM cost
+MAX_MESSAGE_CHARS = 4000
+# Hard cap on messages per chat so one upload cannot exhaust worker memory
+MAX_MESSAGES = 200_000
+
+
+def join_message(first: str, continuation: list[str]) -> str:
+    """Join a message's first line with its continuation lines, truncated to the cap.
+
+    Parsers collect continuation lines in a list and join once; repeated `+=`
+    on a growing string is quadratic.
+    """
+    if not continuation:
+        return first[:MAX_MESSAGE_CHARS]
+    return "\n".join([first, *continuation])[:MAX_MESSAGE_CHARS]
+
+
+def check_message_count(count: int) -> None:
+    if count > MAX_MESSAGES:
+        raise ValueError("chat_too_large")
+
 
 @dataclass
 class ParsedMessage:
