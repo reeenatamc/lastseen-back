@@ -10,12 +10,30 @@ from unittest.mock import patch
 
 import pytest
 
-from app.analyzers.sentiment import SentimentAnalyzer, _per_person, _evolution, _emotional_drift, _sample
+from app.analyzers.sentiment import (
+    SentimentAnalyzer,
+    _resolve_backend,
+    _emotional_drift,
+    _evolution,
+    _evolution_weekly,
+    _per_person,
+    _recent_shift,
+    _sample,
+)
+from app.analyzers.sentiment_llm import SentimentLLMError
+from app.analyzers.temporal import _week
+from app.core.config import settings
 from app.parsers.base import ParsedChat, ParsedMessage
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
 BASE = datetime(2024, 1, 1, 10, 0)
+
+
+@pytest.fixture(autouse=True)
+def _local_backend(monkeypatch):
+    """Existing tests exercise the local models (mocked); Gemini tests opt in explicitly."""
+    monkeypatch.setattr(settings, "SENTIMENT_BACKEND", "local")
 
 
 def _msg(sender: str, content: str, dt: datetime) -> ParsedMessage:
@@ -88,6 +106,31 @@ def test_per_person_shares_sum_to_one():
     result = _per_person(msgs, scores)
     total = result["Alice"]["positive"] + result["Alice"]["neutral"] + result["Alice"]["negative"]
     assert total == pytest.approx(1.0, abs=0.01)
+
+
+def test_per_person_charged_splits_tone_among_charged_messages():
+    # 10 messages: 1 positive, 2 negative, 7 neutral -> share 0.3, split 1/3 vs 2/3.
+    msgs = [_msg("Alice", f"m{i}", BASE + timedelta(minutes=i)) for i in range(10)]
+    scores = [0.9, -0.5, -0.8] + [0.0] * 7
+    result = _per_person(msgs, scores)["Alice"]
+    assert result["dominant"] == "neutral"
+    assert result["charged"] == {"share": 0.3, "positive": 0.333, "negative": 0.667}
+
+
+def test_per_person_charged_none_when_only_neutral():
+    msgs = [_msg("Alice", f"m{i}", BASE + timedelta(minutes=i)) for i in range(5)]
+    result = _per_person(msgs, [0.0, 0.1, -0.1, 0.2, -0.2])["Alice"]
+    assert result["charged"] == {"share": 0.0, "positive": None, "negative": None}
+
+
+def test_per_person_existing_keys_unchanged_by_charged():
+    msgs = [_msg("Alice", f"m{i}", BASE + timedelta(minutes=i)) for i in range(4)]
+    result = _per_person(msgs, [0.8, -0.6, 0.0, 0.0])["Alice"]
+    assert result["positive"] == 0.25
+    assert result["neutral"] == 0.5
+    assert result["negative"] == 0.25
+    assert result["dominant"] == "neutral"
+    assert result["avg_score"] == pytest.approx(0.05)
 
 
 # ── evolution ─────────────────────────────────────────────────────────────────
@@ -178,6 +221,116 @@ def test_sample_preserves_order():
     assert timestamps == sorted(timestamps)
 
 
+def _spread(n: int, weeks: int, sender: str = "Alice") -> list[ParsedMessage]:
+    """n messages spread evenly over `weeks` weeks starting at BASE (a Monday)."""
+    span = weeks * 7 * 24 * 60 - 1
+    return [
+        _msg(sender, str(i), BASE + timedelta(minutes=i * span // max(n - 1, 1)))
+        for i in range(n)
+    ]
+
+
+def test_sample_regression_keeps_end_of_chat():
+    msgs = _spread(28505, 21)
+    sampled = _sample(msgs, 2000)
+    assert len(sampled) <= 2000
+    last_idx = msgs.index(sampled[-1])
+    assert last_idx >= len(msgs) - 14
+
+
+def test_sample_low_volume_final_week_gets_floor():
+    msgs = []
+    for w in range(10):
+        msgs += [_msg("Alice", "x", BASE + timedelta(weeks=w, seconds=i)) for i in range(2000)]
+    msgs += [_msg("Alice", "x", BASE + timedelta(weeks=10, seconds=i)) for i in range(60)]
+    sampled = _sample(msgs, 2000)
+    last_week = _week(msgs[-1].timestamp)
+    assert sum(1 for m in sampled if _week(m.timestamp) == last_week) >= 40
+    assert len(sampled) <= 2000
+
+
+def test_sample_chronological_and_unique():
+    msgs = _spread(9000, 15)
+    sampled = _sample(msgs, 2000)
+    ts = [m.timestamp for m in sampled]
+    assert ts == sorted(ts)
+    assert len({id(m) for m in sampled}) == len(sampled)
+
+
+def test_sample_short_chat_returned_intact():
+    msgs = _spread(100, 3)
+    assert _sample(msgs, 2000) is msgs
+
+
+def test_sample_floors_exceeding_budget():
+    # 100 weeks x 100 msgs, budget 500: floor 40 x 100 weeks would be 4000.
+    msgs = []
+    for w in range(100):
+        msgs += [_msg("Alice", "x", BASE + timedelta(weeks=w, minutes=i)) for i in range(100)]
+    sampled = _sample(msgs, 500)
+    assert len(sampled) <= 500
+    assert {_week(m.timestamp) for m in sampled} == {_week(m.timestamp) for m in msgs}
+    assert sampled[-1] is msgs[-1]
+
+
+# ── weekly series ─────────────────────────────────────────────────────────────
+
+def test_evolution_weekly_threshold_and_period_start():
+    monday = datetime(2026, 9, 21, 9, 0)  # ISO week 2026-W39
+    msgs = (
+        [_msg("Alice", "a", monday + timedelta(hours=i)) for i in range(5)]
+        + [_msg("Bob", "b", monday + timedelta(hours=i)) for i in range(4)]
+    )
+    scores = [0.5] * 5 + [-0.5] * 4
+    result = _evolution_weekly(msgs, scores)
+    assert len(result) == 1
+    entry = result[0]
+    assert entry["period"] == "2026-W39"
+    assert entry["period_start"] == "2026-09-21"
+    assert entry["Alice"] == pytest.approx(0.5)
+    assert "Bob" not in entry
+    assert entry["n"] == 9
+
+
+# ── recent stretch ────────────────────────────────────────────────────────────
+
+def _two_phase(recent_score: float, days: int = 60):
+    end = datetime(2026, 9, 30, 12, 0)
+    msgs, scores = [], []
+    for d in range(days):
+        for sender in ("Alice", "Bob"):
+            ts = end - timedelta(days=days - 1 - d, minutes=1 if sender == "Alice" else 0)
+            msgs.append(_msg(sender, "x", ts))
+            scores.append(recent_score if d >= days - 14 else 0.3)
+    return msgs, scores
+
+
+def test_recent_shift_none_on_short_chat():
+    msgs, scores = _two_phase(-0.5, days=20)
+    assert _recent_shift(msgs, scores) is None
+
+
+def test_recent_shift_none_with_few_points():
+    msgs = [_msg("Alice", "x", datetime(2026, 8, 1) + timedelta(days=i)) for i in range(40)]
+    assert _recent_shift(msgs, [0.2] * 40) is None  # only ~14 msgs in window
+
+
+def test_recent_shift_more_negative():
+    msgs, scores = _two_phase(-0.5)
+    result = _recent_shift(msgs, scores)
+    assert result["shift"] == "more_negative"
+    assert result["window_days"] == 14
+    alice = result["per_person"]["Alice"]
+    assert alice["delta"] == pytest.approx(-0.8)
+    assert alice["recent_negative_share"] == 1.0
+    assert alice["baseline_negative_share"] == 0.0
+
+
+def test_recent_shift_stable():
+    msgs, scores = _two_phase(0.3)
+    assert _recent_shift(msgs, scores)["shift"] == "stable"
+
+
 # ── full analyzer (mocked model) ─────────────────────────────────────────────
 
 def test_full_analyzer_output_structure():
@@ -206,7 +359,9 @@ def test_full_analyzer_per_person_keys():
         result = SentimentAnalyzer().analyze(chat)
 
     alice = result.data["per_person"]["Alice"]
-    assert set(alice.keys()) == {"positive", "neutral", "negative", "dominant", "avg_score"}
+    assert set(alice.keys()) == {
+        "positive", "neutral", "negative", "dominant", "avg_score", "charged"
+    }
 
 
 def test_analyzer_insufficient_data():
@@ -270,3 +425,116 @@ def test_non_spanish_uses_multilingual_only():
     assert result.data["language"] == "en"
     mock_sent.assert_not_called()
     mock_emo.assert_not_called()
+
+
+def test_full_analyzer_includes_weekly_and_recent():
+    msgs = []
+    for d in range(60):
+        msgs.append(_msg("Alice", "positive msg", BASE + timedelta(days=d, hours=1)))
+        msgs.append(_msg("Bob", "neutral msg", BASE + timedelta(days=d, hours=2)))
+    with _patched_analyzer():
+        result = SentimentAnalyzer().analyze(_make_chat(msgs))
+    assert result.data["weekly"]
+    assert result.data["recent"]["shift"] == "stable"
+
+
+def test_full_analyzer_omits_recent_on_short_chat():
+    msgs = [_msg("Alice", "positive", BASE + timedelta(minutes=i)) for i in range(10)]
+    with _patched_analyzer():
+        result = SentimentAnalyzer().analyze(_make_chat(msgs))
+    assert "weekly" in result.data
+    assert "recent" not in result.data
+
+
+# ── backend selection ─────────────────────────────────────────────────────────
+
+class _Cfg:
+    def __init__(self, backend: str, key: str | None):
+        self.SENTIMENT_BACKEND = backend
+        self.GEMINI_API_KEY = key
+
+
+@pytest.mark.parametrize("backend, key, expected", [
+    ("auto", "k", "gemini"),
+    ("auto", None, "local"),
+    ("gemini", "k", "gemini"),
+    ("gemini", None, "local"),   # nothing to call Gemini with
+    ("local", "k", "local"),
+    ("local", None, "local"),
+])
+def test_resolve_backend(backend, key, expected):
+    assert _resolve_backend(_Cfg(backend, key)) == expected
+
+
+def _gemini_chat() -> ParsedChat:
+    msgs = [_msg("Alice", f"positive {i}", BASE + timedelta(minutes=i)) for i in range(6)]
+    msgs += [_msg("Bob", f"neutral {i}", BASE + timedelta(minutes=i + 6)) for i in range(6)]
+    return _make_chat(msgs)
+
+
+def _use_gemini(monkeypatch):
+    monkeypatch.setattr(settings, "SENTIMENT_BACKEND", "gemini")
+    monkeypatch.setattr(settings, "GEMINI_API_KEY", "test-key")
+
+
+def test_gemini_branch_scores_and_skips_local_models(monkeypatch):
+    _use_gemini(monkeypatch)
+    calls = {}
+
+    def fake_score(texts, *, api_key, model, generate=None):
+        calls["texts"] = texts
+        calls["model"] = model
+        return [0.5] * len(texts), ["joy"] * len(texts)
+
+    monkeypatch.setattr("app.analyzers.sentiment_llm.score_messages", fake_score)
+    with patch("app.analyzers.sentiment._get_es_sentiment") as es, \
+         patch("app.analyzers.sentiment._get_multilingual_pipe") as multi:
+        result = SentimentAnalyzer().analyze(_gemini_chat(), context={"_meta": {"language": "es"}})
+
+    es.assert_not_called()
+    multi.assert_not_called()
+    assert result.data["backend"] == "gemini"
+    assert result.data["model"] == f"gemini:{settings.GEMINI_SENTIMENT_MODEL}"
+    assert result.data["language"] == "es"
+    assert len(calls["texts"]) == 12
+    assert result.data["per_person"]["Alice"]["avg_score"] == pytest.approx(0.5)
+    assert result.data["emotions_per_person"]["Bob"]["dominant"] == "joy"
+
+
+def test_gemini_failure_falls_back_to_local(monkeypatch):
+    _use_gemini(monkeypatch)
+
+    def boom(*args, **kwargs):
+        raise SentimentLLMError("quota")
+
+    monkeypatch.setattr("app.analyzers.sentiment_llm.score_messages", boom)
+    with _patched_analyzer():
+        result = SentimentAnalyzer().analyze(_gemini_chat(), context={"_meta": {"language": "en"}})
+
+    assert result.data["backend"] == "local"
+    assert result.data["model"] == "distilbert-multilingual"
+
+
+def test_gemini_failure_and_no_local_models_reports_unavailable(monkeypatch):
+    _use_gemini(monkeypatch)
+
+    def boom(*args, **kwargs):
+        raise SentimentLLMError("quota")
+
+    monkeypatch.setattr("app.analyzers.sentiment_llm.score_messages", boom)
+    with patch("app.analyzers.sentiment._get_multilingual_pipe", side_effect=ImportError("no transformers")):
+        result = SentimentAnalyzer().analyze(_gemini_chat(), context={"_meta": {"language": "en"}})
+
+    assert result.data == {"error": "sentiment_unavailable"}
+
+
+def test_local_backend_without_models_reports_unavailable():
+    with patch("app.analyzers.sentiment._get_multilingual_pipe", side_effect=ImportError("no torch")):
+        result = SentimentAnalyzer().analyze(_gemini_chat(), context={"_meta": {"language": "en"}})
+    assert result.data == {"error": "sentiment_unavailable"}
+
+
+def test_local_result_reports_backend():
+    with _patched_analyzer():
+        result = SentimentAnalyzer().analyze(_gemini_chat(), context={"_meta": {"language": "en"}})
+    assert result.data["backend"] == "local"

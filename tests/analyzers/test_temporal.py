@@ -376,6 +376,157 @@ def test_decay_evolution_fields():
     assert required <= set(evo[0])
 
 
+# ── Closing phase ─────────────────────────────────────────────────────────────
+
+def _daily_chat(
+    weeks: int,
+    per_day=lambda week: 8,
+    skip_days: frozenset = frozenset(),
+    last_day: int | None = None,
+    first_day: int = 0,
+) -> ParsedChat:
+    """
+    Messages every day from `first_day` to `last_day` (default: end of `weeks`),
+    `per_day(week)` messages 10 min apart, alternating senders. BASE is a Monday,
+    so day // 7 is the ISO week index.
+    """
+    last = weeks * 7 - 1 if last_day is None else last_day
+    msgs = []
+    for day in range(first_day, last + 1):
+        if day in skip_days:
+            continue
+        t = BASE + timedelta(days=day)
+        for k in range(per_day(day // 7)):
+            sender = "Alice" if (day + k) % 2 == 0 else "Bob"
+            msgs.append(_msg(sender, "hola", t + timedelta(minutes=10 * k)))
+    return _make_chat(msgs)
+
+
+def _evo(mpd: list[float], silence: list[float | None] | None = None) -> list[dict]:
+    """Synthetic weekly evolution entries (only the fields _closing_phase reads)."""
+    silence = silence if silence is not None else [0.5] * len(mpd)
+    return [
+        {
+            "period_start": (BASE + timedelta(weeks=i)).strftime("%Y-%m-%d"),
+            "messages_per_day": v,
+            "silence_gap_days": s,
+        }
+        for i, (v, s) in enumerate(zip(mpd, silence))
+    ]
+
+
+def test_closing_constant_volume_not_detected():
+    rd = TemporalAnalyzer().analyze(_daily_chat(12)).data["response_decay"]
+    assert rd["closing_phase"]["detected"] is False
+    assert rd["closing_phase"]["start"] is None
+    assert rd["trend"] == "stable"
+    assert rd["trend_basis"] == "thirds"
+
+
+def test_closing_volume_drop_detected():
+    chat = _daily_chat(12, per_day=lambda w: 2 if w >= 9 else 8)
+    rd = TemporalAnalyzer().analyze(chat).data["response_decay"]
+    cp = rd["closing_phase"]
+    assert cp["detected"] is True
+    assert cp["volume_ratio"] == pytest.approx(0.25, abs=0.01)
+    assert rd["trend"] == "deteriorating"
+    assert rd["trend_basis"] == "closing_phase"
+    window_start = (BASE + timedelta(weeks=9)).strftime("%Y-%m-%d")
+    assert rd["turning_point"] is not None
+    assert window_start <= rd["turning_point"] <= rd["evolution"][-1]["period_start"]
+
+
+def test_closing_detected_by_silence():
+    # Same daily volume, but Mon-Wed of the penultimate week are silent.
+    chat = _daily_chat(12, skip_days=frozenset({70, 71, 72}))
+    cp = TemporalAnalyzer().analyze(chat).data["response_decay"]["closing_phase"]
+    assert cp["detected"] is True
+    assert cp["volume_ratio"] > 0.5
+    assert cp["max_silence_days"] >= 3.0
+
+
+def test_closing_truncated_last_week_not_detected():
+    # Export cut on the Tuesday of the last week: same daily rate, fewer days.
+    chat = _daily_chat(12, last_day=78)
+    rd = TemporalAnalyzer().analyze(chat).data["response_decay"]
+    assert rd["evolution"][-1]["message_count"] == 16
+    assert rd["closing_phase"]["detected"] is False
+    assert rd["trend_basis"] == "thirds"
+
+
+def test_closing_short_chat_insufficient_baseline():
+    rd = TemporalAnalyzer().analyze(_daily_chat(6)).data["response_decay"]
+    assert rd["closing_phase"] == {"detected": False, "reason": "insufficient_baseline"}
+
+
+def test_messages_per_day_partial_weeks():
+    # Starts Wednesday (5 covered days), ends Tuesday (2 covered days).
+    rd = TemporalAnalyzer().analyze(_daily_chat(4, first_day=2, last_day=29)).data["response_decay"]
+    evo = rd["evolution"]
+    assert evo[0]["message_count"] == 40 and evo[0]["messages_per_day"] == 8.0
+    assert evo[1]["messages_per_day"] == 8.0
+    assert evo[-1]["message_count"] == 16 and evo[-1]["messages_per_day"] == 8.0
+
+
+def test_closing_phase_insufficient_boundary():
+    from app.analyzers.temporal import _closing_phase
+
+    assert _closing_phase(_evo([10] * 6))["reason"] == "insufficient_baseline"
+    assert "reason" not in _closing_phase(_evo([10] * 7))
+
+
+def test_closing_phase_volume_ratio_boundary():
+    from app.analyzers.temporal import _closing_phase
+
+    at = _closing_phase(_evo([10] * 4 + [5, 5, 5]))
+    assert at["detected"] is True and at["volume_ratio"] == 0.5
+    above = _closing_phase(_evo([10] * 4 + [5.1, 5.1, 5.1]))
+    assert above["detected"] is False and above["start"] is None
+
+
+def test_closing_phase_silence_min_days_boundary():
+    from app.analyzers.temporal import _closing_phase
+
+    base = [0.5] * 4
+    assert _closing_phase(_evo([10] * 7, base + [0.5, 0.5, 1.5]))["detected"] is True
+    assert _closing_phase(_evo([10] * 7, base + [0.5, 0.5, 1.4]))["detected"] is False
+
+
+def test_closing_phase_silence_factor_boundary():
+    from app.analyzers.temporal import _closing_phase
+
+    base = [1.0] * 4
+    assert _closing_phase(_evo([10] * 7, base + [0.5, 0.5, 2.0]))["detected"] is True
+    assert _closing_phase(_evo([10] * 7, base + [0.5, 0.5, 1.9]))["detected"] is False
+
+
+def test_closing_phase_none_silence_treated_as_zero():
+    from app.analyzers.temporal import _closing_phase
+
+    cp = _closing_phase(_evo([10] * 7, [None] * 4 + [None, None, 1.5]))
+    assert cp["detected"] is True
+    assert cp["baseline_max_silence_days"] == 0.0
+    assert cp["max_silence_days"] == 1.5
+
+
+def test_closing_phase_start_ratio_boundary():
+    from app.analyzers.temporal import _closing_phase
+
+    # Window [8, 7, 0]: mean 5 -> ratio 0.5. Week 1 (8) is above 0.7*base, week 2 (7) is at it.
+    cp = _closing_phase(_evo([10] * 4 + [8, 7, 0]))
+    assert cp["detected"] is True
+    assert cp["start"] == (BASE + timedelta(weeks=5)).strftime("%Y-%m-%d")
+    assert cp["window_weeks"] == 3
+
+
+def test_closing_phase_start_by_silence_week():
+    from app.analyzers.temporal import _closing_phase
+
+    cp = _closing_phase(_evo([10] * 7, [0.5] * 4 + [0.5, 2.0, 0.5]))
+    assert cp["detected"] is True
+    assert cp["start"] == (BASE + timedelta(weeks=5)).strftime("%Y-%m-%d")
+
+
 # ── Edge cases ────────────────────────────────────────────────────────────────
 
 def test_single_message_returns_error():

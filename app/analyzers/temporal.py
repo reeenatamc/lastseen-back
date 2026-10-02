@@ -367,6 +367,12 @@ _HEALTH_W_NEGLECT = 0.30             # one-sided abandonment (volume-robust)
 _HEALTH_W_SILENCE = 0.30             # mutual silence — weights sum to 1.0
 _TREND_DELTA = 0.12                  # symmetric trend threshold
 _TURNING_POINT_MIN_DROP = 0.15       # min leading-vs-trailing health drop to flag a turning point
+_CLOSING_WINDOW_WEEKS = 3            # the final stretch inspected for a fade-out
+_CLOSING_MIN_BASELINE_WEEKS = 4      # weeks before the window needed to call anything "normal"
+_CLOSING_VOLUME_RATIO = 0.5          # window volume at/below this share of baseline = fade-out
+_CLOSING_SILENCE_MIN_DAYS = 1.5      # a window silence must be at least this long to count
+_CLOSING_SILENCE_FACTOR = 2.0        # ...and at least this many times the longest earlier silence
+_CLOSING_START_RATIO = 0.7           # first window week below this share of baseline marks the start
 
 
 def _iter_turn_handoffs(msgs: list[ParsedMessage]):
@@ -427,6 +433,67 @@ def _neglect_score(units: float) -> float:
     return max(0.0, min(1.0, 1.0 - units / _NEGLECT_SATURATION))
 
 
+def _closing_silence_hit(silence: float | None, baseline_max_silence: float) -> bool:
+    """True when a silence is long in absolute terms and unusual for this chat."""
+    s = silence or 0.0
+    return s >= _CLOSING_SILENCE_MIN_DAYS and s >= _CLOSING_SILENCE_FACTOR * baseline_max_silence
+
+
+def _closing_phase(evolution: list[dict]) -> dict:
+    """
+    Detects a fade-out in the last _CLOSING_WINDOW_WEEKS weeks.
+
+    Thirds-based trend dilutes a short collapse at the end, and volume never
+    enters the health formula. This looks only at the final window against the
+    weeks before it, using evidence that survives an export cut mid-week:
+    messages per covered day (not raw counts) and silences between real
+    messages. Detected when the window's daily volume falls to
+    _CLOSING_VOLUME_RATIO of the baseline median, OR its longest silence is
+    both >= _CLOSING_SILENCE_MIN_DAYS and >= _CLOSING_SILENCE_FACTOR times the
+    longest earlier silence. `start` is the first window week that already
+    shows the drop (volume <= _CLOSING_START_RATIO of baseline, or a
+    qualifying silence), falling back to the first window week.
+
+    Result shapes: with too few baseline weeks to compare, returns
+    {"detected": False, "reason": "insufficient_baseline"} (nothing to compare
+    against, which is not the same as "stable"). With enough baseline, the full
+    dict is returned and has no "reason" key, whether detected or not.
+    """
+    split = len(evolution) - _CLOSING_WINDOW_WEEKS
+    if split < _CLOSING_MIN_BASELINE_WEEKS:
+        return {"detected": False, "reason": "insufficient_baseline"}
+
+    prior, window = evolution[:split], evolution[split:]
+    base = statistics.median(e["messages_per_day"] for e in prior)
+    window_mean = statistics.mean(e["messages_per_day"] for e in window)
+    volume_ratio = window_mean / base if base > 0 else 1.0
+
+    baseline_max = max((e["silence_gap_days"] or 0.0) for e in prior)
+    window_max = max((e["silence_gap_days"] or 0.0) for e in window)
+
+    detected = volume_ratio <= _CLOSING_VOLUME_RATIO or _closing_silence_hit(window_max, baseline_max)
+
+    start = None
+    if detected:
+        start = window[0]["period_start"]
+        for e in window:
+            if (
+                e["messages_per_day"] <= _CLOSING_START_RATIO * base
+                or _closing_silence_hit(e["silence_gap_days"], baseline_max)
+            ):
+                start = e["period_start"]
+                break
+
+    return {
+        "detected": detected,
+        "start": start,
+        "volume_ratio": round(volume_ratio, 3),
+        "max_silence_days": round(window_max, 1),
+        "baseline_max_silence_days": round(baseline_max, 1),
+        "window_weeks": len(window),
+    }
+
+
 def _response_decay(msgs: list[ParsedMessage]) -> dict:
     """
     Core LastSeen metric: detects progressive deterioration of reciprocity.
@@ -455,6 +522,14 @@ def _response_decay(msgs: list[ParsedMessage]) -> dict:
     still caught.
 
     decay_score: 0.0 (healthy) → 1.0 (fully decayed), from the recent third.
+
+    Closing phase: the thirds comparison and the turning-point search both
+    discount the end of the data, because the last weeks are where export
+    artifacts live. But when someone exports a chat after it ended, the fade-out
+    is exactly there. _closing_phase uses evidence robust to truncation (volume
+    per covered day, silences between real messages); if it fires, trend becomes
+    "deteriorating" (trend_basis "closing_phase") and, when the capped search
+    found nothing, its start becomes the turning point.
     """
     weekly_rt: dict[str, list[float]] = defaultdict(list)
     weekly_msgs: dict[str, int] = defaultdict(int)
@@ -500,6 +575,18 @@ def _response_decay(msgs: list[ParsedMessage]) -> dict:
     if len(all_weeks) < 2:
         return {"trend": "insufficient_data"}
 
+    # Days of each week actually covered by the chat: Mon–Sun clipped to the
+    # first/last message dates, inclusive, so a partial edge week is not
+    # mistaken for a quiet one.
+    first_day = msgs[0].timestamp.date()
+    last_day = msgs[-1].timestamp.date()
+
+    def _covered_days(week: str) -> int:
+        monday = datetime.strptime(_week_start(week), "%Y-%m-%d").date()
+        lo = max(monday, first_day)
+        hi = min(monday + timedelta(days=6), last_day)
+        return max(1, (hi - lo).days + 1)
+
     evolution = []
     for week in all_weeks:
         avg_rt = round(statistics.mean(weekly_rt[week])) if weekly_rt[week] else None
@@ -523,6 +610,7 @@ def _response_decay(msgs: list[ParsedMessage]) -> dict:
             "period_start": _week_start(week),
             "avg_response_seconds": avg_rt,
             "message_count": weekly_msgs[week],
+            "messages_per_day": round(weekly_msgs[week] / _covered_days(week), 1),
             "initiative_imbalance": imbalance,
             "delay_rate": delay_rate,
             "neglect_units": neglect_units,
@@ -561,10 +649,18 @@ def _response_decay(msgs: list[ParsedMessage]) -> dict:
 
     decay_score = round(max(0.0, min(1.0, 1.0 - statistics.mean(health[-third:]))), 3)
 
+    closing_phase = _closing_phase(evolution)
+    trend_basis = "thirds"
+    if closing_phase["detected"] and trend != "deteriorating":
+        trend = "deteriorating"
+        trend_basis = "closing_phase"
+
     # Turning point: the split that maximises (mean health before) − (mean
     # health after). Catches slow sustained declines, not just one-week
-    # cliffs. Suppressed in the last 20% — that tail is the export boundary,
-    # not an inflection ("except if it's the end of the conversation").
+    # cliffs. Suppressed in the last 20% — that tail can hold export-boundary
+    # artifacts (a cut-off week), so health alone is not trusted there. A real
+    # fade-out at the end is covered separately by closing_phase, which relies
+    # on volume per covered day and silences between real messages.
     # Reported as the week's start date (YYYY-MM-DD) so the narrative layer
     # and UI get something human, not an opaque ISO-week code.
     cutoff_idx = max(1, round(len(health) * 0.8))
@@ -576,10 +672,15 @@ def _response_decay(msgs: list[ParsedMessage]) -> dict:
             best_drop = drop
             turning_point = evolution[i]["period_start"]
 
+    if turning_point is None and closing_phase["detected"]:
+        turning_point = closing_phase["start"]
+
     return {
         "trend": trend,
+        "trend_basis": trend_basis,
         "decay_score": decay_score,
         "turning_point": turning_point,
+        "closing_phase": closing_phase,
         "evolution": evolution,
     }
 
