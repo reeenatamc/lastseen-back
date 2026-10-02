@@ -37,7 +37,7 @@ jobs:
         run: |
           pip install --quiet \
             fastapi uvicorn pydantic-settings \
-            sqlalchemy asyncpg psycopg2-binary alembic \
+            'sqlalchemy[asyncio]' asyncpg psycopg2-binary alembic \
             celery redis \
             python-jose bcrypt 'google-auth[requests]' \
             python-multipart email-validator \
@@ -50,6 +50,9 @@ jobs:
           pytest tests/parsers/ \
                  tests/analyzers/test_temporal.py \
                  tests/analyzers/test_narrative.py \
+                 tests/analyzers/test_conflict.py \
+                 tests/analyzers/test_redaction.py \
+                 tests/analyzers/test_sentiment_llm.py \
                  tests/analyzers/lexicons/ \
                  tests/services/ \
                  -v
