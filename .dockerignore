@@ -1,0 +1,11 @@
+# Secrets and VCS metadata must never end up in an image layer
+.env
+.env.*
+.git
+.github
+tests
+__pycache__
+*.pyc
+.pytest_cache
+*.bundle
+scratch

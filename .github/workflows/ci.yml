@@ -51,6 +51,7 @@ jobs:
                  tests/analyzers/test_temporal.py \
                  tests/analyzers/test_narrative.py \
                  tests/analyzers/lexicons/ \
+                 tests/services/ \
                  -v
         # Sentiment tests excluded — require torch (~2 GB), tested locally.
         # Lexicon scorer tests included: pure stdlib, no ML deps.
