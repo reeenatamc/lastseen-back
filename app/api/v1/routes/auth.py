@@ -2,7 +2,8 @@ from datetime import datetime, timedelta, timezone
 from typing import Annotated
 
 import bcrypt
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi.concurrency import run_in_threadpool
 from fastapi.security import OAuth2PasswordRequestForm
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token as google_id_token
@@ -12,6 +13,7 @@ from sqlalchemy import select
 
 from app.core.config import settings
 from app.core.dependencies import DB, get_current_user
+from app.core.ratelimit import GOOGLE_LIMIT, LOGIN_LIMITS, REGISTER_LIMIT, ip_key, limiter
 from app.models.user import User
 
 router = APIRouter()
@@ -53,6 +55,11 @@ def _verify(plain: str, hashed: str) -> bool:
     return bcrypt.checkpw(plain.encode(), hashed.encode())
 
 
+# Verified when the e-mail is unknown so a missing account costs the same bcrypt
+# time as a wrong password (no account enumeration by response time)
+_DUMMY_HASH = _hash("timing-equalizer-not-a-real-password")
+
+
 def _create_token(user_id: int) -> str:
     expire = datetime.now(timezone.utc) + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     return jwt.encode(
@@ -65,12 +72,17 @@ def _create_token(user_id: int) -> str:
 # --- Endpoints ---
 
 @router.post("/register", response_model=UserOut, status_code=status.HTTP_201_CREATED)
-async def register(body: RegisterRequest, db: DB):
+@limiter.limit(REGISTER_LIMIT, key_func=ip_key)
+async def register(request: Request, body: RegisterRequest, db: DB):
     existing = await db.execute(select(User).where(User.email == body.email))
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already registered")
 
-    user = User(email=body.email, hashed_password=_hash(body.password))
+    user = User(
+        email=body.email,
+        hashed_password=await run_in_threadpool(_hash, body.password),
+        credits=settings.FREE_CREDITS_ON_SIGNUP,
+    )
     db.add(user)
     await db.commit()
     await db.refresh(user)
@@ -78,15 +90,16 @@ async def register(body: RegisterRequest, db: DB):
 
 
 @router.post("/token", response_model=TokenOut)
-async def login(form_data: FormData, db: DB):
+@limiter.limit(LOGIN_LIMITS[0], key_func=ip_key)
+@limiter.limit(LOGIN_LIMITS[1], key_func=ip_key)
+async def login(request: Request, form_data: FormData, db: DB):
     result = await db.execute(select(User).where(User.email == form_data.username))
     user = result.scalar_one_or_none()
 
-    if (
-        not user
-        or not user.hashed_password
-        or not _verify(form_data.password, user.hashed_password)
-    ):
+    # Always run one bcrypt check, off the event loop, whether or not the account exists
+    hashed = user.hashed_password if user and user.hashed_password else _DUMMY_HASH
+    password_ok = await run_in_threadpool(_verify, form_data.password, hashed)
+    if not user or not user.hashed_password or not password_ok:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password",
@@ -99,7 +112,8 @@ async def login(form_data: FormData, db: DB):
 
 
 @router.post("/google", response_model=TokenOut)
-async def google_login(body: GoogleLoginRequest, db: DB):
+@limiter.limit(GOOGLE_LIMIT, key_func=ip_key)
+async def google_login(request: Request, body: GoogleLoginRequest, db: DB):
     """
     Verifies a Google ID token (from Google Identity Services on the frontend)
     and returns a LastSeen JWT. Auto-links to an existing email account when
@@ -112,7 +126,9 @@ async def google_login(body: GoogleLoginRequest, db: DB):
         )
 
     try:
-        idinfo = google_id_token.verify_oauth2_token(
+        # Blocking network call (fetches Google certs): off the event loop
+        idinfo = await run_in_threadpool(
+            google_id_token.verify_oauth2_token,
             body.credential,
             google_requests.Request(),
             settings.GOOGLE_CLIENT_ID,
@@ -143,12 +159,20 @@ async def google_login(body: GoogleLoginRequest, db: DB):
         user = result.scalar_one_or_none()
         if user:
             user.google_sub = google_sub
+            # Google vouches for the e-mail owner; whoever registered a password for
+            # this address first may be someone else, so that password stops working
+            user.hashed_password = None
             await db.commit()
             await db.refresh(user)
 
     # 3. Brand new user: create Google-only account (no password)
     if not user:
-        user = User(email=email, hashed_password=None, google_sub=google_sub)
+        user = User(
+            email=email,
+            hashed_password=None,
+            google_sub=google_sub,
+            credits=settings.FREE_CREDITS_ON_SIGNUP,
+        )
         db.add(user)
         await db.commit()
         await db.refresh(user)

@@ -46,13 +46,21 @@ async def get_current_user_id(token: str = Depends(oauth2_scheme)) -> int:
 async def get_optional_user_id(
     token: str | None = Depends(oauth2_scheme_optional),
 ) -> int | None:
-    """Optional auth — returns None for guests, no error raised."""
+    """Optional auth: None for guests (no header), 401 if a token is sent but invalid.
+
+    A stale token must not silently turn into a guest request: the client would
+    upload as a guest believing it is logged in.
+    """
     if token is None:
         return None
     try:
         return _decode_user_id(token)
     except (JWTError, ValueError):
-        return None
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Could not validate credentials",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
 
 async def get_current_user(
