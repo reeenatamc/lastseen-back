@@ -5,8 +5,8 @@ FastAPI and Celery pipeline that parses an exported WhatsApp chat, runs four ana
 <table>
 <tr>
 <td align="center"><img src="docs/screenshots/02-preview.jpg" width="200" alt="Free preview"/><br/><sub>Free preview</sub></td>
-<td align="center"><img src="docs/screenshots/04-narrative.jpg" width="200" alt="Narrative"/><br/><sub>Narrative</sub></td>
-<td align="center"><img src="docs/screenshots/05-metrics.jpg" width="200" alt="Metrics"/><br/><sub>Metrics</sub></td>
+<td align="center"><img src="docs/screenshots/05-turning-point.jpg" width="200" alt="Turning point"/><br/><sub>Turning point</sub></td>
+<td align="center"><img src="docs/screenshots/07-narrative.jpg" width="200" alt="Narrative"/><br/><sub>Narrative</sub></td>
 <td align="center"><img src="docs/screenshots/08-share-card.jpg" width="200" alt="Share card"/><br/><sub>Share card</sub></td>
 </tr>
 </table>
