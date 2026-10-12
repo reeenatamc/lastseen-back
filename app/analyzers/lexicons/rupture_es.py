@@ -5,6 +5,7 @@ Patterns are matched against accent-folded, lower-cased text, so they are
 written without accents and cover the usual chat spellings ("kiero", "blokear").
 Only the category names ever leave this module; matched text is never kept.
 """
+
 from __future__ import annotations
 
 import re

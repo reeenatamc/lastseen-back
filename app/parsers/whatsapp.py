@@ -57,7 +57,9 @@ _MEDIA_TOKENS = {
     "gif omitido": "gif",
     "documento omitido": "document",
 }
-_MEDIA_ATTACH_RE = re.compile(r"^<?(attached|adjunto|attached file|archivo adjunto):", re.IGNORECASE)
+_MEDIA_ATTACH_RE = re.compile(
+    r"^<?(attached|adjunto|attached file|archivo adjunto):", re.IGNORECASE
+)
 
 # Service lines (calls, deletions, blocks). They stay in the message stream so
 # timing metrics see them, but are flagged so text analyzers skip them.
@@ -87,7 +89,9 @@ _UNBLOCKED = {
     "desbloqueaste a esta persona",
 }
 # Trailing edit marker; the message itself is still ordinary text.
-_EDITED_RE = re.compile(r"\s*<(?:this message was edited|se editó este mensaje\.?)>\s*$", re.IGNORECASE)
+_EDITED_RE = re.compile(
+    r"\s*<(?:this message was edited|se editó este mensaje\.?)>\s*$", re.IGNORECASE
+)
 
 
 def _classify(lowered: str) -> str | None:
@@ -108,6 +112,7 @@ def _classify(lowered: str) -> str | None:
     if bare in _UNBLOCKED:
         return "unblock"
     return None
+
 
 # Lines that are WhatsApp system messages, not chat content
 _SYSTEM_PATTERNS = re.compile(
@@ -197,7 +202,11 @@ class WhatsAppParser(BaseParser):
             match = _ANDROID_RE.match(line) or _IOS_RE.match(line)
             if not match:
                 # Past the cap the rest would be truncated anyway: stop collecting
-                if messages and not _SYSTEM_PATTERNS.search(line) and extra_chars < MAX_MESSAGE_CHARS:
+                if (
+                    messages
+                    and not _SYSTEM_PATTERNS.search(line)
+                    and extra_chars < MAX_MESSAGE_CHARS
+                ):
                     extra.append(line)
                     extra_chars += len(line) + 1
                 continue

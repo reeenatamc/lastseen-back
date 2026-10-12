@@ -27,6 +27,7 @@ def _request(headers: dict[str, str], peer: str = "10.0.0.1") -> Request:
 
 # ── Rate limit keys (pure) ────────────────────────────────────────────────────
 
+
 def test_key_uses_user_when_token_is_valid():
     from app.api.v1.routes.auth import _create_token
 
@@ -50,6 +51,7 @@ def test_proxy_header_first_value_only_when_configured(monkeypatch):
 
 # ── Rate limit in the app ─────────────────────────────────────────────────────
 
+
 async def test_eleventh_upload_is_429_not_500(client, monkeypatch):
     monkeypatch.setattr(upload_routes, "process_chat_upload", _Queue())
     codes = [(await _upload(client)).status_code for _ in range(11)]
@@ -59,9 +61,7 @@ async def test_eleventh_upload_is_429_not_500(client, monkeypatch):
 
 async def test_login_is_rate_limited_per_minute(client):
     form = {"username": "nobody@example.com", "password": "wrong-password"}
-    codes = [
-        (await client.post("/api/v1/auth/token", data=form)).status_code for _ in range(11)
-    ]
+    codes = [(await client.post("/api/v1/auth/token", data=form)).status_code for _ in range(11)]
     assert codes[:10] == [401] * 10
     assert codes[10] == 429
 
@@ -77,6 +77,7 @@ async def test_register_is_limited_to_five_per_hour(client):
 
 
 # ── Optional auth ─────────────────────────────────────────────────────────────
+
 
 async def test_invalid_token_on_upload_is_401(client, monkeypatch):
     monkeypatch.setattr(upload_routes, "process_chat_upload", _Queue())
@@ -95,6 +96,7 @@ async def test_no_header_is_guest(client, monkeypatch):
 
 # ── Upload size ───────────────────────────────────────────────────────────────
 
+
 async def test_oversized_upload_is_413(client, monkeypatch):
     monkeypatch.setattr(upload_routes, "process_chat_upload", _Queue())
     monkeypatch.setattr(upload_routes, "MAX_FILE_SIZE", 1000)
@@ -111,6 +113,7 @@ def test_max_file_size_is_20_mb():
 
 
 # ── Google link ───────────────────────────────────────────────────────────────
+
 
 async def test_google_link_drops_old_password(client, monkeypatch):
     email = "victim@example.com"
@@ -152,6 +155,7 @@ async def test_login_unknown_user_still_runs_bcrypt(client, monkeypatch):
 
 # ── Incomplete report is re-locked ────────────────────────────────────────────
 
+
 async def test_incomplete_report_refunds_and_relocks(
     make_user, make_analysis, db_session, monkeypatch
 ):
@@ -165,13 +169,19 @@ async def test_incomplete_report_refunds_and_relocks(
 
     user = await make_user(credits=0)
     user_id = user.id
-    analysis = await make_analysis(user, unlocked=True, credits_spent=1, status=AnalysisStatus.processing)
+    analysis = await make_analysis(
+        user, unlocked=True, credits_spent=1, status=AnalysisStatus.processing
+    )
     analysis_id = analysis.id
 
     pipeline._save_result(analysis_id, {"temporal": {}}, refund=True)
     sync_engine.dispose()
 
     await db_session.rollback()
-    row = (await db_session.execute(select(Analysis).where(Analysis.id == analysis_id))).scalar_one()
-    credits = (await db_session.execute(select(User.credits).where(User.id == user_id))).scalar_one()
+    row = (
+        await db_session.execute(select(Analysis).where(Analysis.id == analysis_id))
+    ).scalar_one()
+    credits = (
+        await db_session.execute(select(User.credits).where(User.id == user_id))
+    ).scalar_one()
     assert (row.unlocked, row.credits_spent, credits) == (False, 0, 1)

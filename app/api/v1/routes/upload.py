@@ -23,6 +23,7 @@ _READ_CHUNK = 1024 * 1024  # read in 1 MB pieces so an oversized body is cut ear
 Platform = Literal["whatsapp", "telegram", "imessage"]
 Language = Literal["auto", "es", "en"]
 
+
 async def read_capped(file: UploadFile, limit: int) -> bytes:
     """Read an upload in chunks, raising 413 as soon as it exceeds `limit` bytes."""
     buffer = bytearray()
@@ -50,8 +51,14 @@ class TaskStatusResponse(BaseModel):
 
 
 def _enqueue(
-    *, analysis_id: int | None, tier: str, content: str, platform: str, language: str,
-    date_from: str | None, date_to: str | None,
+    *,
+    analysis_id: int | None,
+    tier: str,
+    content: str,
+    platform: str,
+    language: str,
+    date_from: str | None,
+    date_to: str | None,
 ):
     """Queue the pipeline task without letting chat content reach the worker logs.
 
@@ -130,8 +137,13 @@ async def upload_chat(
 
         try:
             _enqueue(
-                analysis_id=analysis.id, tier=tier, content=decoded, platform=platform,
-                language=language, date_from=date_from_iso, date_to=date_to_iso,
+                analysis_id=analysis.id,
+                tier=tier,
+                content=decoded,
+                platform=platform,
+                language=language,
+                date_from=date_from_iso,
+                date_to=date_to_iso,
             )
         except Exception:
             # Charged but never queued: give the credit back and fail the analysis
@@ -146,8 +158,13 @@ async def upload_chat(
 
     # Guests only ever get the free preview (no LLM analyzers)
     task = _enqueue(
-        analysis_id=None, tier="preview", content=decoded, platform=platform,
-        language=language, date_from=date_from_iso, date_to=date_to_iso,
+        analysis_id=None,
+        tier="preview",
+        content=decoded,
+        platform=platform,
+        language=language,
+        date_from=date_from_iso,
+        date_to=date_to_iso,
     )
     return UploadResponse(task_id=task.id, status="queued", tier="preview")
 

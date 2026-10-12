@@ -23,6 +23,7 @@ FormData = Annotated[OAuth2PasswordRequestForm, Depends()]
 
 # --- Schemas ---
 
+
 class RegisterRequest(BaseModel):
     email: EmailStr
     password: str = Field(min_length=8)
@@ -47,6 +48,7 @@ class TokenOut(BaseModel):
 
 # --- Helpers ---
 
+
 def _hash(plain: str) -> str:
     return bcrypt.hashpw(plain.encode(), bcrypt.gensalt()).decode()
 
@@ -70,6 +72,7 @@ def _create_token(user_id: int) -> str:
 
 
 # --- Endpoints ---
+
 
 @router.post("/register", response_model=UserOut, status_code=status.HTTP_201_CREATED)
 @limiter.limit(REGISTER_LIMIT, key_func=ip_key)

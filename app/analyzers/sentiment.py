@@ -24,6 +24,7 @@ this limit, messages are sampled stratified by ISO week (see `_sample`) so
 the whole timeline, including the most recent weeks, stays represented while
 keeping inference time under ~30s on CPU.
 """
+
 from __future__ import annotations
 
 import logging
@@ -58,6 +59,7 @@ def _get_multilingual_pipe():
     global _multilingual_pipe
     if _multilingual_pipe is None:
         from transformers import pipeline
+
         _multilingual_pipe = pipeline(
             "sentiment-analysis",
             model=_MULTILINGUAL_MODEL_ID,
@@ -73,6 +75,7 @@ def _get_es_sentiment():
     global _es_sentiment_analyzer
     if _es_sentiment_analyzer is None:
         from pysentimiento import create_analyzer
+
         _es_sentiment_analyzer = create_analyzer(task="sentiment", lang="es")
     return _es_sentiment_analyzer
 
@@ -81,6 +84,7 @@ def _get_es_emotion():
     global _es_emotion_analyzer
     if _es_emotion_analyzer is None:
         from pysentimiento import create_analyzer
+
         _es_emotion_analyzer = create_analyzer(task="emotion", lang="es")
     return _es_emotion_analyzer
 
@@ -107,7 +111,7 @@ def _detect_language(msgs: list) -> str:
     except ImportError:
         return "unknown"
 
-    DetectorFactory.seed = 42    # make detection deterministic across runs
+    DetectorFactory.seed = 42  # make detection deterministic across runs
 
     texts = [m.content for m in msgs[:_LANG_DETECT_SAMPLE] if m.content.strip()]
     if not texts:
@@ -135,6 +139,7 @@ def _detect_language(msgs: list) -> str:
 
 
 # ── Analyzer ──────────────────────────────────────────────────────────────────
+
 
 class SentimentAnalyzer(BaseAnalyzer):
     name = "sentiment"
@@ -206,7 +211,9 @@ def _resolve_backend(settings) -> str:
     return "gemini"  # "auto" or "gemini", with a key
 
 
-def _score_local(sample: list[ParsedMessage], language: str) -> tuple[list[float], list[str] | None, str]:
+def _score_local(
+    sample: list[ParsedMessage], language: str
+) -> tuple[list[float], list[str] | None, str]:
     """Score with the local models; raises ImportError when they are not installed."""
     if language == "es":
         scores = _score_messages_spanish(sample)
@@ -216,6 +223,7 @@ def _score_local(sample: list[ParsedMessage], language: str) -> tuple[list[float
 
 
 # ── Metric functions (pure once scores are computed) ─────────────────────────
+
 
 def _per_person(msgs: list[ParsedMessage], scores: list[float]) -> dict:
     by_person: dict[str, list[float]] = defaultdict(list)
@@ -242,8 +250,10 @@ def _per_person(msgs: list[ParsedMessage], scores: list[float]) -> dict:
             charged = {"share": 0.0, "positive": None, "negative": None}
         avg = statistics.mean(s)
         dominant = (
-            "positive" if positive > max(neutral, negative)
-            else "negative" if negative > neutral
+            "positive"
+            if positive > max(neutral, negative)
+            else "negative"
+            if negative > neutral
             else "neutral"
         )
         result[person] = {
@@ -398,12 +408,12 @@ def _recent_shift(msgs: list[ParsedMessage], scores: list[float]) -> dict | None
             "n": len(recent[person]),
         }
 
-    mean_delta = (
-        statistics.mean(p["delta"] for p in per_person.values()) if per_person else 0.0
-    )
+    mean_delta = statistics.mean(p["delta"] for p in per_person.values()) if per_person else 0.0
     shift = (
-        "more_negative" if mean_delta <= -_RECENT_SHIFT_DELTA
-        else "more_positive" if mean_delta >= _RECENT_SHIFT_DELTA
+        "more_negative"
+        if mean_delta <= -_RECENT_SHIFT_DELTA
+        else "more_positive"
+        if mean_delta >= _RECENT_SHIFT_DELTA
         else "stable"
     )
     return {
@@ -432,6 +442,7 @@ def _emotions_per_person(msgs: list[ParsedMessage], emotions: list[str]) -> dict
 
 
 # ── Inference ─────────────────────────────────────────────────────────────────
+
 
 def _score_messages_multilingual(msgs: list[ParsedMessage]) -> list[float]:
     """Multilingual baseline: returns a score per message in [-1, +1]."""
@@ -498,6 +509,7 @@ def _emotion_messages_spanish(msgs: list[ParsedMessage]) -> list[str]:
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
 
 def _spaced(items: list[ParsedMessage], k: int) -> list[ParsedMessage]:
     """Pick k evenly spaced items, always including the first and the last."""

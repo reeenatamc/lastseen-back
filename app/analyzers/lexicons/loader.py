@@ -15,6 +15,7 @@ Files
                       Negative, Neutral, Positive, Unicode name, Unicode block.
                       CC BY-SA 4.0.
 """
+
 from __future__ import annotations
 
 import csv
@@ -26,10 +27,12 @@ _LEXICON_DIR = Path(__file__).parent
 
 # ── Spanish word lexicon (NRC ES + AFINN ES merged) ─────────────────────────
 
+
 @dataclass(frozen=True)
 class LexEntry:
     """One row from the merged Spanish lexicon."""
-    valence: float            # in [-1, +1]
+
+    valence: float  # in [-1, +1]
     positive: bool
     negative: bool
     joy: bool

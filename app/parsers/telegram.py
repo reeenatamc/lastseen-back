@@ -30,9 +30,7 @@ class TelegramParser(BaseParser):
             timestamp = datetime.fromisoformat(msg["date"])
             text = msg.get("text", "")
             if isinstance(text, list):
-                text = "".join(
-                    t if isinstance(t, str) else t.get("text", "") for t in text
-                )
+                text = "".join(t if isinstance(t, str) else t.get("text", "") for t in text)
 
             media_type = msg.get("media_type") or msg.get("file")
             is_media = media_type is not None

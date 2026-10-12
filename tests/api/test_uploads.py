@@ -48,7 +48,9 @@ async def _upload(client, user=None):
 
 async def _row(db_session, analysis_id: int) -> Analysis:
     await db_session.rollback()
-    return (await db_session.execute(select(Analysis).where(Analysis.id == analysis_id))).scalar_one()
+    return (
+        await db_session.execute(select(Analysis).where(Analysis.id == analysis_id))
+    ).scalar_one()
 
 
 async def _credits(db_session, user_id: int) -> int:
@@ -57,6 +59,7 @@ async def _credits(db_session, user_id: int) -> int:
 
 
 # ── Upload tiers ──────────────────────────────────────────────────────────────
+
 
 async def test_guest_gets_preview_tier(client, queue):
     resp = await _upload(client)
@@ -126,6 +129,7 @@ async def test_enqueue_failure_refunds_credit(client, make_user, monkeypatch, db
 
 # ── Refund ────────────────────────────────────────────────────────────────────
 
+
 async def test_refund_is_idempotent(make_user, make_analysis, db_session):
     user = await make_user(credits=0)
     user_id = user.id
@@ -140,6 +144,7 @@ async def test_refund_is_idempotent(make_user, make_analysis, db_session):
 
 
 # ── Read ──────────────────────────────────────────────────────────────────────
+
 
 async def test_get_locked_returns_preview(client, make_user, make_analysis):
     user = await make_user()

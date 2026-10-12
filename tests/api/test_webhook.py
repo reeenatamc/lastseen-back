@@ -24,7 +24,11 @@ def _payments_config(monkeypatch):
         "CREDIT_PACKS",
         [
             CreditPack(
-                key="triple", credits=3, price_cents=1000, currency="USD", variant_id=555,
+                key="triple",
+                credits=3,
+                price_cents=1000,
+                currency="USD",
+                variant_id=555,
                 checkout_url="https://shop.lemonsqueezy.com/checkout/buy/abc",
             )
         ],
@@ -33,7 +37,12 @@ def _payments_config(monkeypatch):
 
 def _event(event: str, user_id: int, order_id: str = "9", variant_id: int = 555, **meta) -> bytes:
     payload = {
-        "meta": {"event_name": event, "custom_data": {"user_id": str(user_id)}, "test_mode": False, **meta},
+        "meta": {
+            "event_name": event,
+            "custom_data": {"user_id": str(user_id)},
+            "test_mode": False,
+            **meta,
+        },
         "data": {
             "type": "orders",
             "id": order_id,
@@ -55,7 +64,9 @@ async def _post(client, body: bytes, secret: str = SECRET):
 
 async def _state(db_session, user_id: int) -> tuple[int, list[Payment]]:
     await db_session.rollback()
-    credits = (await db_session.execute(select(User.credits).where(User.id == user_id))).scalar_one()
+    credits = (
+        await db_session.execute(select(User.credits).where(User.id == user_id))
+    ).scalar_one()
     payments = (await db_session.execute(select(Payment))).scalars().all()
     return credits, list(payments)
 
@@ -84,11 +95,15 @@ async def test_paid_order_adds_credits(client, make_user, db_session):
     assert resp.status_code == 200
     credits, payments = await _state(db_session, user.id)
     assert credits == 4
-    assert [(p.status, p.credits, p.amount_cents) for p in payments] == [(PaymentStatus.paid, 3, 1000)]
+    assert [(p.status, p.credits, p.amount_cents) for p in payments] == [
+        (PaymentStatus.paid, 3, 1000)
+    ]
 
 
 async def test_repeated_order_does_not_duplicate(client, make_user, db_session):
-    user_id = (await make_user()).id  # read now: the duplicate path rolls back and expires the ORM object
+    user_id = (
+        await make_user()
+    ).id  # read now: the duplicate path rolls back and expires the ORM object
     body = _event("order_created", user_id)
     assert (await _post(client, body)).status_code == 200
     assert (await _post(client, body)).status_code == 200
@@ -144,7 +159,12 @@ async def test_test_mode_ignored_by_default(client, make_user, db_session):
 
 
 async def test_foreign_event_is_ignored(client):
-    body = json.dumps({"meta": {"event_name": "subscription_created"}, "data": {"type": "subscriptions", "id": "1"}}).encode()
+    body = json.dumps(
+        {
+            "meta": {"event_name": "subscription_created"},
+            "data": {"type": "subscriptions", "id": "1"},
+        }
+    ).encode()
     assert (await _post(client, body)).status_code == 200
 
 

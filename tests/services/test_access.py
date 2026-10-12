@@ -4,6 +4,7 @@ from app.services.access import LOCKED_SECTIONS, build_preview, build_teaser
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
+
 def _full() -> dict:
     return {
         "temporal": {
@@ -33,11 +34,15 @@ def _full() -> dict:
 
 # ── build_preview ─────────────────────────────────────────────────────────────
 
+
 def test_preview_keeps_only_allowed_sections():
     preview = build_preview(_full())
     assert set(preview) == {"temporal", "narrative"}
     assert set(preview["temporal"]) == {
-        "overview", "response_time", "activity_patterns", "message_length"
+        "overview",
+        "response_time",
+        "activity_patterns",
+        "message_length",
     }
 
 
@@ -69,6 +74,7 @@ def test_preview_tolerates_missing_analyzers():
 
 
 # ── build_teaser ──────────────────────────────────────────────────────────────
+
 
 def test_teaser_reports_facts():
     teaser = build_teaser(_full())

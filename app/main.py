@@ -32,9 +32,7 @@ class AdminAuth(AuthenticationBackend):
         form = await request.form()
         username = form.get("username") or ""
         password = form.get("password") or ""
-        username_ok = secrets.compare_digest(
-            username.encode(), settings.ADMIN_USERNAME.encode()
-        )
+        username_ok = secrets.compare_digest(username.encode(), settings.ADMIN_USERNAME.encode())
         try:
             # bcrypt is slow on purpose: keep it off the event loop
             password_ok = await run_in_threadpool(

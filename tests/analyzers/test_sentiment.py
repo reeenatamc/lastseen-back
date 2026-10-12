@@ -5,6 +5,7 @@ The HuggingFace model is mocked so tests run without downloading weights.
 The mock returns deterministic scores that simulate realistic sentiment patterns,
 letting us verify aggregation logic, sampling, and drift detection independently.
 """
+
 from datetime import datetime, timedelta
 from unittest.mock import patch
 
@@ -57,23 +58,29 @@ def _mock_pipe(texts: list[str]) -> list[list[dict]]:
     for text in texts:
         first = text[0].lower() if text else "x"
         if first == "p":
-            results.append([
-                {"label": "positive", "score": 0.85},
-                {"label": "neutral",  "score": 0.10},
-                {"label": "negative", "score": 0.05},
-            ])
+            results.append(
+                [
+                    {"label": "positive", "score": 0.85},
+                    {"label": "neutral", "score": 0.10},
+                    {"label": "negative", "score": 0.05},
+                ]
+            )
         elif first == "n":
-            results.append([
-                {"label": "positive", "score": 0.05},
-                {"label": "neutral",  "score": 0.10},
-                {"label": "negative", "score": 0.85},
-            ])
+            results.append(
+                [
+                    {"label": "positive", "score": 0.05},
+                    {"label": "neutral", "score": 0.10},
+                    {"label": "negative", "score": 0.85},
+                ]
+            )
         else:
-            results.append([
-                {"label": "positive", "score": 0.20},
-                {"label": "neutral",  "score": 0.65},
-                {"label": "negative", "score": 0.15},
-            ])
+            results.append(
+                [
+                    {"label": "positive", "score": 0.20},
+                    {"label": "neutral", "score": 0.65},
+                    {"label": "negative", "score": 0.15},
+                ]
+            )
     return results
 
 
@@ -83,6 +90,7 @@ def _patched_analyzer():
 
 
 # ── per_person ────────────────────────────────────────────────────────────────
+
 
 def test_per_person_dominant_positive():
     msgs = [_msg("Alice", "positive message", BASE + timedelta(minutes=i)) for i in range(5)]
@@ -135,6 +143,7 @@ def test_per_person_existing_keys_unchanged_by_charged():
 
 # ── evolution ─────────────────────────────────────────────────────────────────
 
+
 def test_evolution_has_period_key():
     msgs = [_msg("Alice", "msg", BASE + timedelta(days=i)) for i in range(3)]
     scores = [0.5, 0.3, -0.1]
@@ -158,11 +167,11 @@ def test_evolution_groups_by_quarter():
 
 # ── emotional_drift ───────────────────────────────────────────────────────────
 
+
 def test_drift_zero_when_aligned():
-    msgs = (
-        [_msg("Alice", "msg", BASE + timedelta(days=i)) for i in range(0, 6)]
-        + [_msg("Bob", "msg", BASE + timedelta(days=i)) for i in range(6, 12)]
-    )
+    msgs = [_msg("Alice", "msg", BASE + timedelta(days=i)) for i in range(0, 6)] + [
+        _msg("Bob", "msg", BASE + timedelta(days=i)) for i in range(6, 12)
+    ]
     # Both equally positive
     scores = [0.6] * 12
     result = _emotional_drift(msgs, scores)
@@ -170,10 +179,9 @@ def test_drift_zero_when_aligned():
 
 
 def test_drift_high_when_opposite():
-    msgs = (
-        [_msg("Alice", "p", BASE + timedelta(days=i*7)) for i in range(8)]
-        + [_msg("Bob",   "n", BASE + timedelta(days=i*7)) for i in range(8)]
-    )
+    msgs = [_msg("Alice", "p", BASE + timedelta(days=i * 7)) for i in range(8)] + [
+        _msg("Bob", "n", BASE + timedelta(days=i * 7)) for i in range(8)
+    ]
     # Alice strongly positive, Bob strongly negative
     scores = [0.9] * 8 + [-0.9] * 8
     result = _emotional_drift(msgs, scores)
@@ -181,10 +189,9 @@ def test_drift_high_when_opposite():
 
 
 def test_drift_direction_label():
-    msgs = (
-        [_msg("Alice", "p", BASE + timedelta(days=i*7)) for i in range(4)]
-        + [_msg("Bob",   "n", BASE + timedelta(days=i*7)) for i in range(4)]
-    )
+    msgs = [_msg("Alice", "p", BASE + timedelta(days=i * 7)) for i in range(4)] + [
+        _msg("Bob", "n", BASE + timedelta(days=i * 7)) for i in range(4)
+    ]
     scores = [0.8] * 4 + [-0.8] * 4
     result = _emotional_drift(msgs, scores)
     assert "Alice" in result["direction"]
@@ -192,16 +199,16 @@ def test_drift_direction_label():
 
 
 def test_drift_score_bounds():
-    msgs = (
-        [_msg("Alice", "x", BASE + timedelta(days=i)) for i in range(10)]
-        + [_msg("Bob",   "x", BASE + timedelta(days=i)) for i in range(10)]
-    )
+    msgs = [_msg("Alice", "x", BASE + timedelta(days=i)) for i in range(10)] + [
+        _msg("Bob", "x", BASE + timedelta(days=i)) for i in range(10)
+    ]
     scores = [0.5, -0.5] * 10
     result = _emotional_drift(msgs, scores)
     assert 0.0 <= result["score"] <= 1.0
 
 
 # ── sampling ──────────────────────────────────────────────────────────────────
+
 
 def test_sample_returns_all_when_under_limit():
     msgs = [_msg("Alice", "msg", BASE + timedelta(minutes=i)) for i in range(100)]
@@ -225,8 +232,7 @@ def _spread(n: int, weeks: int, sender: str = "Alice") -> list[ParsedMessage]:
     """n messages spread evenly over `weeks` weeks starting at BASE (a Monday)."""
     span = weeks * 7 * 24 * 60 - 1
     return [
-        _msg(sender, str(i), BASE + timedelta(minutes=i * span // max(n - 1, 1)))
-        for i in range(n)
+        _msg(sender, str(i), BASE + timedelta(minutes=i * span // max(n - 1, 1))) for i in range(n)
     ]
 
 
@@ -275,12 +281,12 @@ def test_sample_floors_exceeding_budget():
 
 # ── weekly series ─────────────────────────────────────────────────────────────
 
+
 def test_evolution_weekly_threshold_and_period_start():
     monday = datetime(2026, 9, 21, 9, 0)  # ISO week 2026-W39
-    msgs = (
-        [_msg("Alice", "a", monday + timedelta(hours=i)) for i in range(5)]
-        + [_msg("Bob", "b", monday + timedelta(hours=i)) for i in range(4)]
-    )
+    msgs = [_msg("Alice", "a", monday + timedelta(hours=i)) for i in range(5)] + [
+        _msg("Bob", "b", monday + timedelta(hours=i)) for i in range(4)
+    ]
     scores = [0.5] * 5 + [-0.5] * 4
     result = _evolution_weekly(msgs, scores)
     assert len(result) == 1
@@ -293,6 +299,7 @@ def test_evolution_weekly_threshold_and_period_start():
 
 
 # ── recent stretch ────────────────────────────────────────────────────────────
+
 
 def _two_phase(recent_score: float, days: int = 60):
     end = datetime(2026, 9, 30, 12, 0)
@@ -333,11 +340,11 @@ def test_recent_shift_stable():
 
 # ── full analyzer (mocked model) ─────────────────────────────────────────────
 
+
 def test_full_analyzer_output_structure():
-    msgs = (
-        [_msg("Alice", f"positive msg {i}", BASE + timedelta(days=i)) for i in range(20)]
-        + [_msg("Bob",   f"neutral msg {i}",   BASE + timedelta(days=i)) for i in range(20)]
-    )
+    msgs = [_msg("Alice", f"positive msg {i}", BASE + timedelta(days=i)) for i in range(20)] + [
+        _msg("Bob", f"neutral msg {i}", BASE + timedelta(days=i)) for i in range(20)
+    ]
     chat = _make_chat(msgs)
 
     with _patched_analyzer():
@@ -360,7 +367,12 @@ def test_full_analyzer_per_person_keys():
 
     alice = result.data["per_person"]["Alice"]
     assert set(alice.keys()) == {
-        "positive", "neutral", "negative", "dominant", "avg_score", "charged"
+        "positive",
+        "neutral",
+        "negative",
+        "dominant",
+        "avg_score",
+        "charged",
     }
 
 
@@ -374,7 +386,9 @@ def test_analyzer_insufficient_data():
 def test_analyzer_skips_media():
     msgs = [
         ParsedMessage(timestamp=BASE, sender="Alice", content="", is_media=True),
-        ParsedMessage(timestamp=BASE + timedelta(minutes=1), sender="Bob", content="", is_media=True),
+        ParsedMessage(
+            timestamp=BASE + timedelta(minutes=1), sender="Bob", content="", is_media=True
+        ),
     ]
     chat = _make_chat(msgs)
     with _patched_analyzer():
@@ -384,23 +398,26 @@ def test_analyzer_skips_media():
 
 # ── language routing ────────────────────────────────────────────────────────
 
+
 def test_spanish_routes_to_pysentimiento():
     """When context language is 'es', the Spanish backends are invoked
     and `emotions_per_person` is populated."""
-    msgs = [
-        _msg("Alice", "qué lindo día", BASE + timedelta(minutes=i)) for i in range(6)
-    ] + [
+    msgs = [_msg("Alice", "qué lindo día", BASE + timedelta(minutes=i)) for i in range(6)] + [
         _msg("Bob", "estoy muy triste", BASE + timedelta(minutes=i + 6)) for i in range(6)
     ]
     chat = _make_chat(msgs)
 
-    sentiment_outputs = [type("O", (), {"probas": {"POS": 0.9, "NEU": 0.05, "NEG": 0.05}})() for _ in range(12)]
+    sentiment_outputs = [
+        type("O", (), {"probas": {"POS": 0.9, "NEU": 0.05, "NEG": 0.05}})() for _ in range(12)
+    ]
     emotion_outputs = [type("O", (), {"output": "joy"})() for _ in range(12)]
 
-    with patch("app.analyzers.sentiment._get_es_sentiment") as mock_sent, \
-         patch("app.analyzers.sentiment._get_es_emotion") as mock_emo:
-        mock_sent.return_value.predict.side_effect = lambda batch: sentiment_outputs[:len(batch)]
-        mock_emo.return_value.predict.side_effect = lambda batch: emotion_outputs[:len(batch)]
+    with (
+        patch("app.analyzers.sentiment._get_es_sentiment") as mock_sent,
+        patch("app.analyzers.sentiment._get_es_emotion") as mock_emo,
+    ):
+        mock_sent.return_value.predict.side_effect = lambda batch: sentiment_outputs[: len(batch)]
+        mock_emo.return_value.predict.side_effect = lambda batch: emotion_outputs[: len(batch)]
 
         result = SentimentAnalyzer().analyze(chat, context={"_meta": {"language": "es"}})
 
@@ -416,9 +433,11 @@ def test_non_spanish_uses_multilingual_only():
     msgs = [_msg("Alice", "positive msg", BASE + timedelta(minutes=i)) for i in range(6)]
     chat = _make_chat(msgs + [_msg("Bob", "neutral msg", BASE + timedelta(minutes=7))])
 
-    with patch("app.analyzers.sentiment._get_es_sentiment") as mock_sent, \
-         patch("app.analyzers.sentiment._get_es_emotion") as mock_emo, \
-         _patched_analyzer():
+    with (
+        patch("app.analyzers.sentiment._get_es_sentiment") as mock_sent,
+        patch("app.analyzers.sentiment._get_es_emotion") as mock_emo,
+        _patched_analyzer(),
+    ):
         result = SentimentAnalyzer().analyze(chat, context={"_meta": {"language": "en"}})
 
     assert "emotions_per_person" not in result.data
@@ -448,20 +467,24 @@ def test_full_analyzer_omits_recent_on_short_chat():
 
 # ── backend selection ─────────────────────────────────────────────────────────
 
+
 class _Cfg:
     def __init__(self, backend: str, key: str | None):
         self.SENTIMENT_BACKEND = backend
         self.GEMINI_API_KEY = key
 
 
-@pytest.mark.parametrize("backend, key, expected", [
-    ("auto", "k", "gemini"),
-    ("auto", None, "local"),
-    ("gemini", "k", "gemini"),
-    ("gemini", None, "local"),   # nothing to call Gemini with
-    ("local", "k", "local"),
-    ("local", None, "local"),
-])
+@pytest.mark.parametrize(
+    "backend, key, expected",
+    [
+        ("auto", "k", "gemini"),
+        ("auto", None, "local"),
+        ("gemini", "k", "gemini"),
+        ("gemini", None, "local"),  # nothing to call Gemini with
+        ("local", "k", "local"),
+        ("local", None, "local"),
+    ],
+)
 def test_resolve_backend(backend, key, expected):
     assert _resolve_backend(_Cfg(backend, key)) == expected
 
@@ -487,8 +510,10 @@ def test_gemini_branch_scores_and_skips_local_models(monkeypatch):
         return [0.5] * len(texts), ["joy"] * len(texts)
 
     monkeypatch.setattr("app.analyzers.sentiment_llm.score_messages", fake_score)
-    with patch("app.analyzers.sentiment._get_es_sentiment") as es, \
-         patch("app.analyzers.sentiment._get_multilingual_pipe") as multi:
+    with (
+        patch("app.analyzers.sentiment._get_es_sentiment") as es,
+        patch("app.analyzers.sentiment._get_multilingual_pipe") as multi,
+    ):
         result = SentimentAnalyzer().analyze(_gemini_chat(), context={"_meta": {"language": "es"}})
 
     es.assert_not_called()
@@ -522,14 +547,18 @@ def test_gemini_failure_and_no_local_models_reports_unavailable(monkeypatch):
         raise SentimentLLMError("quota")
 
     monkeypatch.setattr("app.analyzers.sentiment_llm.score_messages", boom)
-    with patch("app.analyzers.sentiment._get_multilingual_pipe", side_effect=ImportError("no transformers")):
+    with patch(
+        "app.analyzers.sentiment._get_multilingual_pipe", side_effect=ImportError("no transformers")
+    ):
         result = SentimentAnalyzer().analyze(_gemini_chat(), context={"_meta": {"language": "en"}})
 
     assert result.data == {"error": "sentiment_unavailable"}
 
 
 def test_local_backend_without_models_reports_unavailable():
-    with patch("app.analyzers.sentiment._get_multilingual_pipe", side_effect=ImportError("no torch")):
+    with patch(
+        "app.analyzers.sentiment._get_multilingual_pipe", side_effect=ImportError("no torch")
+    ):
         result = SentimentAnalyzer().analyze(_gemini_chat(), context={"_meta": {"language": "en"}})
     assert result.data == {"error": "sentiment_unavailable"}
 

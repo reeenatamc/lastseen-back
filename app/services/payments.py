@@ -1,4 +1,5 @@
 """Lemon Squeezy payments: signature check, event parsing and credit accounting."""
+
 import hashlib
 import hmac
 import logging
@@ -20,6 +21,7 @@ logger = logging.getLogger(__name__)
 PROVIDER = "lemonsqueezy"
 
 # ── Pure helpers ──────────────────────────────────────────────────────────────
+
 
 @dataclass(frozen=True)
 class OrderEvent:
@@ -100,6 +102,7 @@ def build_checkout_url(pack: CreditPack, user_id: int, email: str) -> str:
 
 # ── Event application (async, DB) ─────────────────────────────────────────────
 
+
 async def apply_order_created(session: AsyncSession, event: OrderEvent) -> None:
     """Record a paid order and grant its credits in one transaction. Idempotent."""
     if event.status != "paid":
@@ -138,7 +141,9 @@ async def apply_order_created(session: AsyncSession, event: OrderEvent) -> None:
     else:
         logger.warning(
             "Unmatched order %s (user_found=%s, variant_known=%s)",
-            event.order_id, user is not None, credits is not None,
+            event.order_id,
+            user is not None,
+            credits is not None,
         )
     await session.commit()
 

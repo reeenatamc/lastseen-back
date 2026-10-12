@@ -8,9 +8,21 @@ SAMPLE = {
     "name": "Test Chat",
     "type": "personal_chat",
     "messages": [
-        {"id": 1, "type": "message", "date": "2023-12-25T10:00:00", "from": "Alice", "text": "Hello!"},
+        {
+            "id": 1,
+            "type": "message",
+            "date": "2023-12-25T10:00:00",
+            "from": "Alice",
+            "text": "Hello!",
+        },
         {"id": 2, "type": "message", "date": "2023-12-25T10:01:00", "from": "Bob", "text": "Hey"},
-        {"id": 3, "type": "service", "date": "2023-12-25T10:02:00", "actor": "Alice", "text": "joined"},
+        {
+            "id": 3,
+            "type": "service",
+            "date": "2023-12-25T10:02:00",
+            "actor": "Alice",
+            "text": "joined",
+        },
     ],
 }
 

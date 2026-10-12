@@ -1,4 +1,5 @@
 """Paywall views of an analysis result. Pure functions, no I/O."""
+
 from copy import deepcopy
 
 # ── Constants ─────────────────────────────────────────────────────────────────
@@ -22,6 +23,7 @@ LOCKED_SECTIONS: list[str] = [
 ]
 
 # ── Builders ──────────────────────────────────────────────────────────────────
+
 
 def _as_dict(value: object) -> dict:
     return value if isinstance(value, dict) else {}
