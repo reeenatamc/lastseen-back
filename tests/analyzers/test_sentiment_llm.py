@@ -1,4 +1,5 @@
 """LLM sentiment scorer tests: a fake `generate` replaces Gemini, no network."""
+
 import json
 
 import pytest
@@ -29,12 +30,13 @@ def _batch_from_prompt(prompt: str) -> list[dict]:
 def _score_by_text(prompt: str) -> str:
     """Fake model: score = number in the text / 1000, emotion joy."""
     items = _batch_from_prompt(prompt)
-    return json.dumps([
-        {"i": it["i"], "s": int(it["t"].split("-")[1]) / 1000, "e": "joy"} for it in items
-    ])
+    return json.dumps(
+        [{"i": it["i"], "s": int(it["t"].split("-")[1]) / 1000, "e": "joy"} for it in items]
+    )
 
 
 # ── _parse_batch ──────────────────────────────────────────────────────────────
+
 
 def test_parse_valid():
     scores, emotions, missing = _parse_batch(
@@ -100,6 +102,7 @@ def test_parse_non_list_raises():
 
 # ── prompt ────────────────────────────────────────────────────────────────────
 
+
 def test_prompt_redacts_truncates_and_has_only_index_and_text():
     texts = ["llámame al 099 123 4567 o a@b.com", "x" * 1000]
     items = _batch_from_prompt(_build_prompt(texts))
@@ -109,6 +112,7 @@ def test_prompt_redacts_truncates_and_has_only_index_and_text():
 
 
 # ── score_messages ────────────────────────────────────────────────────────────
+
 
 def test_order_kept_across_batches(monkeypatch):
     monkeypatch.setattr(sentiment_llm, "_BATCH_SIZE", 10)
@@ -151,9 +155,7 @@ def test_retry_then_success():
 
 def test_broken_json_is_retried():
     answers = iter(["oops", _raw({"i": 0, "s": 0.2, "e": "joy"})])
-    scores, _ = score_messages(
-        ["hola"], api_key="k", model="m", generate=lambda p: next(answers)
-    )
+    scores, _ = score_messages(["hola"], api_key="k", model="m", generate=lambda p: next(answers))
     assert scores == [0.2]
 
 

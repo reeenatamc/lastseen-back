@@ -5,19 +5,19 @@ from fastapi import FastAPI
 from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 from slowapi import _rate_limit_exceeded_handler
-from starlette.middleware import Middleware
-from starlette.middleware.sessions import SessionMiddleware
 from slowapi.errors import RateLimitExceeded
 from sqladmin import Admin
 from sqladmin.authentication import AuthenticationBackend
+from starlette.middleware import Middleware
+from starlette.middleware.sessions import SessionMiddleware
 from starlette.requests import Request
 
 import app.models  # noqa: F401 — registers all SQLAlchemy models
 from app.admin.views import AnalysisAdmin, UserAdmin
-from app.core.config import derive_admin_session_key, settings, validate_production_settings
-from app.core.ratelimit import limiter
-from app.core.database import engine
 from app.api.v1 import router as api_v1_router
+from app.core.config import derive_admin_session_key, settings, validate_production_settings
+from app.core.database import engine
+from app.core.ratelimit import limiter
 
 
 class AdminAuth(AuthenticationBackend):
@@ -32,9 +32,7 @@ class AdminAuth(AuthenticationBackend):
         form = await request.form()
         username = form.get("username") or ""
         password = form.get("password") or ""
-        username_ok = secrets.compare_digest(
-            username.encode(), settings.ADMIN_USERNAME.encode()
-        )
+        username_ok = secrets.compare_digest(username.encode(), settings.ADMIN_USERNAME.encode())
         try:
             # bcrypt is slow on purpose: keep it off the event loop
             password_ok = await run_in_threadpool(

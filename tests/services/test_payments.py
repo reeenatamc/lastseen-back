@@ -40,7 +40,11 @@ def _payload(event: str = "order_created", **overrides) -> dict:
 
 def _pack(**kw) -> CreditPack:
     base = dict(
-        key="single", credits=1, price_cents=400, currency="USD", variant_id=123456,
+        key="single",
+        credits=1,
+        price_cents=400,
+        currency="USD",
+        variant_id=123456,
         checkout_url="https://shop.lemonsqueezy.com/checkout/buy/abc",
     )
     base.update(kw)
@@ -48,6 +52,7 @@ def _pack(**kw) -> CreditPack:
 
 
 # ── Signature ─────────────────────────────────────────────────────────────────
+
 
 def test_signature_valid():
     body = b'{"a": 1}'
@@ -71,6 +76,7 @@ def test_signature_empty_secret():
 
 
 # ── Parsing ───────────────────────────────────────────────────────────────────
+
 
 def test_parse_order_created_paid():
     event = parse_order_event(_payload())
@@ -123,6 +129,7 @@ def test_parse_test_mode():
 
 
 # ── Packs and checkout ────────────────────────────────────────────────────────
+
 
 def test_credits_for_variant():
     packs = [_pack(), _pack(key="triple", credits=3, variant_id=999)]

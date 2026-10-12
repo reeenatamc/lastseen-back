@@ -1,4 +1,5 @@
 """Credit accounting for analyses: spend on upload, refund on failure."""
+
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
@@ -7,6 +8,7 @@ from app.models.analysis import Analysis
 from app.models.user import User
 
 # ── Spend ─────────────────────────────────────────────────────────────────────
+
 
 async def spend_credit(session: AsyncSession, user_id: int) -> bool:
     """Take one credit atomically. Does not commit; returns False if none were left.
@@ -21,6 +23,7 @@ async def spend_credit(session: AsyncSession, user_id: int) -> bool:
 
 
 # ── Refund ────────────────────────────────────────────────────────────────────
+
 
 def refund_analysis_credit(session: Session, analysis_id: int) -> int:
     """Return an analysis' spent credits to its owner (sync, for the worker).

@@ -15,6 +15,7 @@ filter for structured identifiers, not anonymization.
 Left untouched on purpose: times ("10:30"), short dates ("12/05"), small
 amounts ("$25.50", "1500") and years, since none reaches 6 digits in a run.
 """
+
 from __future__ import annotations
 
 import re
@@ -49,6 +50,7 @@ _DATE_RE = re.compile(r"\d{1,2}[-.]\d{1,2}[-.]\d{2,4}")
 
 # ── Public API ────────────────────────────────────────────────────────────────
 
+
 def redact(text: str) -> str:
     """Replace e-mails, links and long digit runs in `text` with fixed markers."""
     text = _EMAIL_RE.sub("[email]", text)
@@ -70,4 +72,4 @@ def _link_replacement(match: re.Match[str]) -> str:
     # Nothing after the prefix ("www.,"): not a link
     if len(body) <= _URL_PREFIX_RE.match(value).end():  # type: ignore[union-attr]
         return value
-    return "[link]" + value[len(body):]
+    return "[link]" + value[len(body) :]

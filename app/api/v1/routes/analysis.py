@@ -13,6 +13,7 @@ router = APIRouter()
 
 # --- Schemas ---
 
+
 class AnalysisSummary(BaseModel):
     id: int
     platform: str
@@ -43,6 +44,7 @@ class AnalysisStatusResponse(BaseModel):
 
 # --- Helpers ---
 
+
 async def _get_owned_analysis(db, analysis_id: int, user_id: int) -> Analysis:
     result = await db.execute(
         select(Analysis).where(Analysis.id == analysis_id, Analysis.user_id == user_id)
@@ -72,12 +74,11 @@ def _detail(analysis: Analysis, full: bool) -> AnalysisDetail:
 
 # --- Endpoints ---
 
+
 @router.get("/", response_model=list[AnalysisSummary])
 async def list_analyses(db: DB, user_id: CurrentUserId):
     result = await db.execute(
-        select(Analysis)
-        .where(Analysis.user_id == user_id)
-        .order_by(Analysis.created_at.desc())
+        select(Analysis).where(Analysis.user_id == user_id).order_by(Analysis.created_at.desc())
     )
     return result.scalars().all()
 

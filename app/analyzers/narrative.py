@@ -15,6 +15,7 @@ Structured outputs:
   output_config.format enforces the JSON schema on every response, eliminating
   JSON-parsing failures regardless of model temperature.
 """
+
 from __future__ import annotations
 
 import json
@@ -34,15 +35,15 @@ logger = logging.getLogger(__name__)
 # Anthropic SDK waits up to 10 min), which can outlast the Celery hard time
 # limit and leave the worker looking hung. A finite timeout turns a stuck
 # request into a clean exception that `analyze()` catches and reports as error.
-_LLM_TIMEOUT_SECONDS = 60.0   # anthropic.Anthropic(timeout=...) — float seconds
-_LLM_TIMEOUT_MS = 60_000      # google-genai HttpOptions(timeout=...) — milliseconds
+_LLM_TIMEOUT_SECONDS = 60.0  # anthropic.Anthropic(timeout=...) — float seconds
+_LLM_TIMEOUT_MS = 60_000  # google-genai HttpOptions(timeout=...) — milliseconds
 
 # ── Payload size ──────────────────────────────────────────────────────────────
 # The model needs the shape of the relationship over time, not every data
 # point: a multi-year chat has hundreds of weeks. Both series are thinned so
 # the payload stays small and its cost predictable.
-_MAX_TIMELINE_POINTS = 26     # weekly health points sent (the last one is always kept)
-_MAX_EPISODES = 15            # conflict episodes sent (the heaviest ones, in date order)
+_MAX_TIMELINE_POINTS = 26  # weekly health points sent (the last one is always kept)
+_MAX_EPISODES = 15  # conflict episodes sent (the heaviest ones, in date order)
 
 # ── Schema ────────────────────────────────────────────────────────────────────
 
@@ -117,6 +118,7 @@ Devuelve ÚNICAMENTE el objeto JSON, sin texto adicional."""
 
 # ── Analyzer ──────────────────────────────────────────────────────────────────
 
+
 class NarrativeAnalyzer(BaseAnalyzer):
     name = "narrative"
 
@@ -137,7 +139,9 @@ class NarrativeAnalyzer(BaseAnalyzer):
         try:
             payload = _build_payload(chat, context)
             if provider == "claude":
-                narrative = _call_claude(payload, settings.ANTHROPIC_API_KEY, settings.NARRATIVE_MODEL)
+                narrative = _call_claude(
+                    payload, settings.ANTHROPIC_API_KEY, settings.NARRATIVE_MODEL
+                )
             else:
                 narrative = _call_gemini(payload, settings.GEMINI_API_KEY, settings.GEMINI_MODEL)
             return AnalysisResult(analyzer=self.name, data=narrative)
@@ -148,6 +152,7 @@ class NarrativeAnalyzer(BaseAnalyzer):
 
 
 # ── Metrics payload builder ───────────────────────────────────────────────────
+
 
 def _build_payload(chat: ParsedChat, context: dict) -> dict:
     """Build a compact, privacy-safe metrics payload for Claude."""
@@ -216,9 +221,7 @@ def _build_payload(chat: ParsedChat, context: dict) -> dict:
 
     delayed = temporal.get("delayed_replies", {})
     if delayed and delayed.get("total", 0) > 0:
-        payload["demoras_mas_de_3h"] = {
-            p: c for p, c in (delayed.get("per_person") or {}).items()
-        }
+        payload["demoras_mas_de_3h"] = {p: c for p, c in (delayed.get("per_person") or {}).items()}
 
     if sentiment and not sentiment.get("error"):
         payload["sentimiento"] = {}
@@ -294,7 +297,9 @@ def _weekly_timeline(evolution: list[dict]) -> list[dict]:
     if len(points) <= _MAX_TIMELINE_POINTS:
         return points
     last = len(points) - 1
-    keep = sorted({round(i * last / (_MAX_TIMELINE_POINTS - 1)) for i in range(_MAX_TIMELINE_POINTS)})
+    keep = sorted(
+        {round(i * last / (_MAX_TIMELINE_POINTS - 1)) for i in range(_MAX_TIMELINE_POINTS)}
+    )
     return [points[i] for i in keep]
 
 
@@ -348,12 +353,12 @@ def _conflict_summary(conflict: dict) -> dict | None:
 
 # ── Claude API call ───────────────────────────────────────────────────────────
 
+
 def _call_claude(payload: dict, api_key: str, model: str) -> dict:
     client = anthropic.Anthropic(api_key=api_key, timeout=_LLM_TIMEOUT_SECONDS)
 
-    user_content = (
-        "Analiza estas métricas y genera la narrativa emocional:\n\n"
-        + json.dumps(payload, ensure_ascii=False, indent=2)
+    user_content = "Analiza estas métricas y genera la narrativa emocional:\n\n" + json.dumps(
+        payload, ensure_ascii=False, indent=2
     )
 
     response = client.messages.create(
@@ -381,6 +386,7 @@ def _call_claude(payload: dict, api_key: str, model: str) -> dict:
 
 # ── Gemini API call ───────────────────────────────────────────────────────────
 
+
 def _call_gemini(payload: dict, api_key: str, model: str) -> dict:
     from google import genai
     from google.genai import types
@@ -404,13 +410,19 @@ def _call_gemini(payload: dict, api_key: str, model: str) -> dict:
             response_schema={
                 "type": "object",
                 "properties": {
-                    "resumen":           {"type": "string"},
-                    "dinamica":          {"type": "string"},
-                    "punto_de_quiebre":  {"type": "string", "nullable": True},
-                    "estado_actual":     {"type": "string"},
-                    "reflexion":         {"type": "string"},
+                    "resumen": {"type": "string"},
+                    "dinamica": {"type": "string"},
+                    "punto_de_quiebre": {"type": "string", "nullable": True},
+                    "estado_actual": {"type": "string"},
+                    "reflexion": {"type": "string"},
                 },
-                "required": ["resumen", "dinamica", "punto_de_quiebre", "estado_actual", "reflexion"],
+                "required": [
+                    "resumen",
+                    "dinamica",
+                    "punto_de_quiebre",
+                    "estado_actual",
+                    "reflexion",
+                ],
             },
         ),
     )
@@ -419,6 +431,7 @@ def _call_gemini(payload: dict, api_key: str, model: str) -> dict:
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
 
 def _short_date(iso: str | None) -> str | None:
     if not iso:

@@ -5,11 +5,12 @@ Privacy rule: this module only ever emits counts, dates and participant names.
 Message text is matched against the lexicon and discarded, never returned.
 All metric functions are pure (no side effects, no I/O).
 """
+
 from __future__ import annotations
 
 import statistics
 from collections import defaultdict
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 
 from app.analyzers.base import AnalysisResult, BaseAnalyzer
 from app.analyzers.lexicons.rupture_es import match_categories
@@ -18,15 +19,16 @@ from app.parsers.base import ParsedChat, ParsedMessage
 
 # ── Constants ────────────────────────────────────────────────────────────────
 
-_MIN_TEXT_MESSAGES = 50      # below this a rate per 1000 messages is noise
-_EPISODE_MIN_MENTIONS = 3    # mentions in one day that make it a conflict day
+_MIN_TEXT_MESSAGES = 50  # below this a rate per 1000 messages is noise
+_EPISODE_MIN_MENTIONS = 3  # mentions in one day that make it a conflict day
 _EPISODE_MIN_MISSED_CALLS = 8  # unanswered calls in one day that make it a conflict day
-_EPISODE_HIGH_MENTIONS = 8   # mentions that make a whole episode "high" severity
-_EPISODE_MAX_GAP_DAYS = 2    # conflict days at most one quiet day apart merge
-_RECENT_WINDOW_WEEKS = 3     # "recent" = the last N ISO weeks of the chat
+_EPISODE_HIGH_MENTIONS = 8  # mentions that make a whole episode "high" severity
+_EPISODE_MAX_GAP_DAYS = 2  # conflict days at most one quiet day apart merge
+_RECENT_WINDOW_WEEKS = 3  # "recent" = the last N ISO weeks of the chat
 
 
 # ── Analyzer ─────────────────────────────────────────────────────────────────
+
 
 class ConflictAnalyzer(BaseAnalyzer):
     name = "conflict"
@@ -55,6 +57,7 @@ class ConflictAnalyzer(BaseAnalyzer):
 
 
 # ── Metric functions (pure) ───────────────────────────────────────────────────
+
 
 def _rate(mentions: int, total: int) -> float:
     return round(mentions / total * 1000, 2) if total else 0.0
@@ -159,16 +162,18 @@ def _episodes(
                 cats[c] += n
         mentions = sum(day_mentions[d] for d in span)
         blocked = any(d in block_days for d in span)
-        episodes.append({
-            "start": start.isoformat(),
-            "end": end.isoformat(),
-            "mentions": mentions,
-            "per_person": dict(people),
-            "categories": dict(cats),
-            "missed_calls": sum(day_missed[d] for d in span),
-            "blocked": blocked,
-            "severity": "high" if mentions >= _EPISODE_HIGH_MENTIONS or blocked else "medium",
-        })
+        episodes.append(
+            {
+                "start": start.isoformat(),
+                "end": end.isoformat(),
+                "mentions": mentions,
+                "per_person": dict(people),
+                "categories": dict(cats),
+                "missed_calls": sum(day_missed[d] for d in span),
+                "blocked": blocked,
+                "severity": "high" if mentions >= _EPISODE_HIGH_MENTIONS or blocked else "medium",
+            }
+        )
     return episodes
 
 
@@ -204,9 +209,7 @@ def _recent(weekly: list[dict]) -> dict:
     # Mean of the window's weekly rates (each week weighs the same, so one
     # busy week cannot dominate the comparison with the weekly median).
     recent_rate = round(statistics.mean(w["rate_per_1000"] for w in recent), 2)
-    baseline = (
-        round(statistics.median(w["rate_per_1000"] for w in earlier), 2) if earlier else 0.0
-    )
+    baseline = round(statistics.median(w["rate_per_1000"] for w in earlier), 2) if earlier else 0.0
     return {
         "window_weeks": _RECENT_WINDOW_WEEKS,
         "rate_per_1000": recent_rate,

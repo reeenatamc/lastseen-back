@@ -1,4 +1,5 @@
 """Rate limiting: one Limiter shared by every route."""
+
 from jose import JWTError
 from slowapi import Limiter
 from starlette.requests import Request
@@ -19,6 +20,7 @@ GOOGLE_LIMIT = "20/minute"
 
 
 # ── Keys (pure) ───────────────────────────────────────────────────────────────
+
 
 def client_ip(headers: dict[str, str] | object, peer: str | None, proxy_header: str) -> str:
     """Client IP: first value of the trusted proxy header if configured, else the peer."""

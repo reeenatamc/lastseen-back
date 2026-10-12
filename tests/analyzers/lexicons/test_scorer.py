@@ -7,6 +7,7 @@ Covers each of the four layers in isolation, then their fusion via
 scorer guarantees is "affectionate utterances score positive, even when the
 base model says otherwise."
 """
+
 from __future__ import annotations
 
 import pytest
@@ -23,8 +24,8 @@ from app.analyzers.lexicons.scorer import (
     lexicon_score,
 )
 
-
 # ── Loaders ────────────────────────────────────────────────────────────────
+
 
 def test_spanish_lexicon_loads():
     lex = load_spanish_lexicon()
@@ -48,6 +49,7 @@ def test_emoji_lexicon_loads():
 
 # ── Lexicon scorer ─────────────────────────────────────────────────────────
 
+
 def test_lexicon_score_abstains_on_no_signal():
     assert lexicon_score("aaa bbb ccc") is None
 
@@ -67,6 +69,7 @@ def test_lexicon_score_handles_empty_text():
 
 # ── Intimate scorer ────────────────────────────────────────────────────────
 
+
 def test_intimate_abstains_when_no_match():
     score, mult = intimate_score("hola que tal todo bien")
     assert score is None
@@ -82,7 +85,7 @@ def test_intimate_emphasis_multiplier_on_repeats():
     _, mult_plain = intimate_score("te amo")
     _, mult_loud = intimate_score("TE AMOOOOO!!!")
     assert mult_loud > mult_plain
-    assert mult_loud <= 1.4    # cap
+    assert mult_loud <= 1.4  # cap
 
 
 def test_intimate_playful_negative_capped():
@@ -94,12 +97,13 @@ def test_intimate_playful_negative_capped():
 def test_intimate_diminutive_boost():
     """Diminutives not already in the lexicon get a small positive boost."""
     s_none, _ = intimate_score("la chica")
-    s_dim, _ = intimate_score("la chiquilla")    # diminutive not in vocab
+    s_dim, _ = intimate_score("la chiquilla")  # diminutive not in vocab
     if s_none is None and s_dim is not None:
         assert s_dim > 0
 
 
 # ── Emoji scorer ───────────────────────────────────────────────────────────
+
 
 def test_emoji_abstains_on_no_emoji():
     assert emoji_score("hello world") is None
@@ -123,6 +127,7 @@ def test_emoji_mean_of_multiple():
 
 
 # ── Hybrid fusion ──────────────────────────────────────────────────────────
+
 
 @pytest.mark.parametrize(
     "text",
@@ -178,6 +183,7 @@ def test_hybrid_emphasis_amplifies_magnitude():
 
 
 # ── Explain (debug helper) ─────────────────────────────────────────────────
+
 
 def test_explain_returns_all_components():
     info = explain("te amo mi vida ❤️", -0.2)

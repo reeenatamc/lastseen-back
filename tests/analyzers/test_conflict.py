@@ -54,67 +54,75 @@ def _run(msgs: list[ParsedMessage]) -> dict:
 
 # ── Lexicon ───────────────────────────────────────────────────────────────────
 
-@pytest.mark.parametrize("text,category", [
-    ("terminamos", "breakup"),
-    ("Terminemos esto", "breakup"),
-    ("termíname si quieres", "breakup"),
-    ("me terminaste ayer", "breakup"),
-    ("no quiero terminarte", "breakup"),
-    ("voy a terminar con vos", "breakup"),
-    ("me kieres terminar?", "breakup"),
-    ("me vas a dejar", "breakup"),
-    ("kieres dejarme", "breakup"),
-    ("ya no kiero nada", "breakup"),
-    ("no kiero saber mas de ti", "breakup"),
-    ("no quiero terminar", "breakup"),
-    ("segura que quieres terminar amor?", "breakup"),
-    ("no veo otra solución que terminar", "breakup"),
-    ("para que no te sientas mal por dejarme de querer", "breakup"),
-    ("buscate a alguien q te de todo", "breakup"),
-    ("mejor te buscas a alguien", "breakup"),
-    ("te voy a bloquear", "block_threat"),
-    ("me bloqueaste", "block_threat"),
-    ("no me bloquees", "block_threat"),
-    ("te voy a blokear", "block_threat"),
-    ("estoy blokeada", "block_threat"),
-    ("podemos darnos un tiempo", "time_out"),
-    ("dame tiempo", "time_out"),
-    ("necesito tiempo", "time_out"),
-    ("kiero un tiempo", "time_out"),
-    ("pedí unos días", "time_out"),
-    ("siento que necesitas tiempo", "time_out"),
-    ("debemos darle un poco de tiempo a nuestras cosas", "time_out"),
-    ("ese será el tiempo q nos demos", "time_out"),
-    ("no me hables", "withdrawal"),
-    ("ya no te voy a escribir", "withdrawal"),
-    ("no te voy a contestar", "withdrawal"),
-    ("déjame en paz", "withdrawal"),
-    ("solo te voy a dejar de responder", "withdrawal"),
-])
+
+@pytest.mark.parametrize(
+    "text,category",
+    [
+        ("terminamos", "breakup"),
+        ("Terminemos esto", "breakup"),
+        ("termíname si quieres", "breakup"),
+        ("me terminaste ayer", "breakup"),
+        ("no quiero terminarte", "breakup"),
+        ("voy a terminar con vos", "breakup"),
+        ("me kieres terminar?", "breakup"),
+        ("me vas a dejar", "breakup"),
+        ("kieres dejarme", "breakup"),
+        ("ya no kiero nada", "breakup"),
+        ("no kiero saber mas de ti", "breakup"),
+        ("no quiero terminar", "breakup"),
+        ("segura que quieres terminar amor?", "breakup"),
+        ("no veo otra solución que terminar", "breakup"),
+        ("para que no te sientas mal por dejarme de querer", "breakup"),
+        ("buscate a alguien q te de todo", "breakup"),
+        ("mejor te buscas a alguien", "breakup"),
+        ("te voy a bloquear", "block_threat"),
+        ("me bloqueaste", "block_threat"),
+        ("no me bloquees", "block_threat"),
+        ("te voy a blokear", "block_threat"),
+        ("estoy blokeada", "block_threat"),
+        ("podemos darnos un tiempo", "time_out"),
+        ("dame tiempo", "time_out"),
+        ("necesito tiempo", "time_out"),
+        ("kiero un tiempo", "time_out"),
+        ("pedí unos días", "time_out"),
+        ("siento que necesitas tiempo", "time_out"),
+        ("debemos darle un poco de tiempo a nuestras cosas", "time_out"),
+        ("ese será el tiempo q nos demos", "time_out"),
+        ("no me hables", "withdrawal"),
+        ("ya no te voy a escribir", "withdrawal"),
+        ("no te voy a contestar", "withdrawal"),
+        ("déjame en paz", "withdrawal"),
+        ("solo te voy a dejar de responder", "withdrawal"),
+    ],
+)
 def test_lexicon_positive(text, category):
     assert category in match_categories(text)
 
 
-@pytest.mark.parametrize("text", [
-    "terminé el turno",
-    "voy a terminar la tesis",
-    "ya termino",
-    "hola como estas",
-    "nos vemos manana",
-    "dame el cargador",
-    "quiero terminar la tesis hoy",
-    "kiero terminar de comer",
-    "ahora q tienes tiempo",
-    "cuando haya tiempo, no problem",
-    "hace un tiempo que no vamos",
-    "te voy a dejar de molestar",
-    "perdóname, el bloqueo mental q m dio",
-])
+@pytest.mark.parametrize(
+    "text",
+    [
+        "terminé el turno",
+        "voy a terminar la tesis",
+        "ya termino",
+        "hola como estas",
+        "nos vemos manana",
+        "dame el cargador",
+        "quiero terminar la tesis hoy",
+        "kiero terminar de comer",
+        "ahora q tienes tiempo",
+        "cuando haya tiempo, no problem",
+        "hace un tiempo que no vamos",
+        "te voy a dejar de molestar",
+        "perdóname, el bloqueo mental q m dio",
+    ],
+)
 def test_lexicon_negative(text):
     assert match_categories(text) == set()
 
 
 # ── Analyzer ──────────────────────────────────────────────────────────────────
+
 
 def test_insufficient_data():
     msgs = [_msg("Alice", "hola", BASE + timedelta(minutes=i)) for i in range(49)]
@@ -182,7 +190,9 @@ def test_a_few_missed_calls_are_not_an_episode():
 
 
 def test_block_event_makes_high_episode():
-    block = _msg("Bob", "You blocked this contact", BASE + timedelta(days=12, hours=3), True, "block")
+    block = _msg(
+        "Bob", "You blocked this contact", BASE + timedelta(days=12, hours=3), True, "block"
+    )
     unblock = _msg("Bob", "You unblocked this contact", BASE + timedelta(days=13), True, "unblock")
     data = _run(_filler() + [block, unblock])
     assert len(data["episodes"]) == 1
@@ -201,8 +211,15 @@ def test_high_severity_by_mentions():
 
 def test_consecutive_days_merge_and_distant_days_do_not():
     msgs = _filler() + _rupture(5, 3) + _rupture(7, 3, "Bob") + _rupture(20, 3)
-    msgs.append(_msg("Bob", "Missed voice call. Tap to call back",
-                     BASE + timedelta(days=6), True, "missed_call"))
+    msgs.append(
+        _msg(
+            "Bob",
+            "Missed voice call. Tap to call back",
+            BASE + timedelta(days=6),
+            True,
+            "missed_call",
+        )
+    )
     eps = _run(msgs)["episodes"]
     assert len(eps) == 2
     assert (eps[0]["start"], eps[0]["end"]) == ("2026-09-06", "2026-09-08")
@@ -215,7 +232,9 @@ def test_consecutive_days_merge_and_distant_days_do_not():
 def test_system_events_counts():
     msgs = _filler()
     msgs += [
-        _msg("Alice", "You deleted this message.", BASE + timedelta(days=2, hours=2), True, "deleted"),
+        _msg(
+            "Alice", "You deleted this message.", BASE + timedelta(days=2, hours=2), True, "deleted"
+        ),
         _msg("Bob", "Missed voice call", BASE + timedelta(days=3, hours=2), True, "missed_call"),
         _msg("Bob", "Missed video call", BASE + timedelta(days=4, hours=2), True, "missed_call"),
     ]

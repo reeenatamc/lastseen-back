@@ -48,9 +48,7 @@ def _select_parser(content: str, platform: str) -> BaseParser:
     raise ValueError(f"No parser found for platform '{platform}'")
 
 
-def _filter_by_date(
-    chat: ParsedChat, date_from: date | None, date_to: date | None
-) -> ParsedChat:
+def _filter_by_date(chat: ParsedChat, date_from: date | None, date_to: date | None) -> ParsedChat:
     """Keep only messages whose calendar day falls within [date_from, date_to].
 
     Both limits are inclusive and compared by day, so a message at 23:59 on

@@ -12,10 +12,14 @@ class User(Base):
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
     hashed_password: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    google_sub: Mapped[str | None] = mapped_column(String(255), unique=True, index=True, nullable=True)
+    google_sub: Mapped[str | None] = mapped_column(
+        String(255), unique=True, index=True, nullable=True
+    )
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     is_premium: Mapped[bool] = mapped_column(Boolean, default=False)
-    credits: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default=text("0"))
+    credits: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default=text("0")
+    )
     stripe_customer_id: Mapped[str | None] = mapped_column(String(255))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(

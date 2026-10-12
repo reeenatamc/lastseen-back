@@ -4,6 +4,7 @@ Temporal analyzer — measures the evolution of interaction dynamics over time.
 All functions are pure (no side effects, no I/O) so they are trivially testable
 and reusable by future analyzers (e.g. sentiment can call _split_into_blocks).
 """
+
 from __future__ import annotations
 
 import statistics
@@ -21,11 +22,11 @@ from app.parsers.base import ParsedChat, ParsedMessage
 # slow texters always exceed 4 h (≈ every message is its own block). So the
 # threshold adapts to THIS pair's rhythm — the 95th-percentile gap — clamped
 # to a sane band, with a fixed fallback when there isn't enough data to adapt.
-_INITIATIVE_GAP = timedelta(hours=4)             # fallback only (sample too small to adapt)
-_ADAPTIVE_GAP_PCT = 0.95                         # a new conversation = a silence in the pair's top 5%
-_ADAPTIVE_GAP_FLOOR = timedelta(hours=1)         # never split a conversation on a sub-hour lull
-_ADAPTIVE_GAP_CEILING = timedelta(hours=6)       # a > 6 h silence always ends a conversation
-_ADAPTIVE_GAP_MIN_SAMPLE = 30                    # need this many gaps before a rhythm is meaningful
+_INITIATIVE_GAP = timedelta(hours=4)  # fallback only (sample too small to adapt)
+_ADAPTIVE_GAP_PCT = 0.95  # a new conversation = a silence in the pair's top 5%
+_ADAPTIVE_GAP_FLOOR = timedelta(hours=1)  # never split a conversation on a sub-hour lull
+_ADAPTIVE_GAP_CEILING = timedelta(hours=6)  # a > 6 h silence always ends a conversation
+_ADAPTIVE_GAP_MIN_SAMPLE = 30  # need this many gaps before a rhythm is meaningful
 
 # Beyond this window a delayed message is not counted as a "response"
 _MAX_RESPONSE_WINDOW = timedelta(hours=24)
@@ -34,6 +35,7 @@ _TOP_GAPS = 5
 
 
 # ── Analyzer ─────────────────────────────────────────────────────────────────
+
 
 class TemporalAnalyzer(BaseAnalyzer):
     name = "temporal"
@@ -53,8 +55,8 @@ class TemporalAnalyzer(BaseAnalyzer):
                 data={
                     "error": "insufficient_data",
                     "detail": f"El chat tiene {len(msgs)} mensajes en {total_days} días. "
-                              f"Se necesitan al menos {self.MIN_MESSAGES} mensajes y "
-                              f"{self.MIN_DAYS} días para un análisis significativo.",
+                    f"Se necesitan al menos {self.MIN_MESSAGES} mensajes y "
+                    f"{self.MIN_DAYS} días para un análisis significativo.",
                 },
             )
 
@@ -74,6 +76,7 @@ class TemporalAnalyzer(BaseAnalyzer):
 
 
 # ── Metric functions (pure) ───────────────────────────────────────────────────
+
 
 def _overview(chat: ParsedChat) -> dict:
     msgs = chat.messages
@@ -127,10 +130,7 @@ def _response_time(msgs: list[ParsedMessage]) -> dict:
         }
 
     return {
-        "per_person": {
-            p: _person_stats(v)
-            for p, v in times.items()
-        },
+        "per_person": {p: _person_stats(v) for p, v in times.items()},
         "evolution": [
             {
                 "period": q,
@@ -199,8 +199,8 @@ def _initiative_balance(msgs: list[ParsedMessage]) -> dict:
             abandoned_opens[opener] += 1
 
     for prev_block, curr_block in zip(blocks, blocks[1:]):
-        block_opener  = prev_block[0].sender
-        last_speaker  = prev_block[-1].sender
+        block_opener = prev_block[0].sender
+        last_speaker = prev_block[-1].sender
         first_speaker = curr_block[0].sender
 
         if first_speaker == last_speaker:
@@ -219,10 +219,10 @@ def _initiative_balance(msgs: list[ParsedMessage]) -> dict:
                 abandoned_opens[first_speaker] += 1
 
     total_init = sum(initiatives.values())
-    total_ab   = sum(abandoned_opens.values())
-    total_lr   = sum(late_replies.values())
-    total_dt   = sum(double_texts.values())
-    quarters   = sorted(by_quarter_init)
+    total_ab = sum(abandoned_opens.values())
+    total_lr = sum(late_replies.values())
+    total_dt = sum(double_texts.values())
+    quarters = sorted(by_quarter_init)
 
     def _share(counts: dict[str, int], total: int) -> dict[str, float]:
         return {p: round(c / total, 3) for p, c in counts.items()} if total else {}
@@ -279,9 +279,7 @@ def _activity_patterns(msgs: list[ParsedMessage]) -> dict:
     return {
         "by_hour": {str(h): by_hour.get(h, 0) for h in range(24)},
         "by_weekday": {str(d): by_weekday.get(d, 0) for d in range(7)},
-        "by_month": [
-            {"period": m, "count": c} for m, c in sorted(by_month.items())
-        ],
+        "by_month": [{"period": m, "count": c} for m, c in sorted(by_month.items())],
     }
 
 
@@ -354,25 +352,25 @@ def _message_length(msgs: list[ParsedMessage]) -> dict:
 # The product-meaningful knobs of the core metric, grouped so they are easy to
 # find and reason about. Changing any of these changes what "decay" means.
 
-_DELAY_THRESHOLD = 3 * 3600          # seconds; a turn handoff slower than this starts to count as neglect
-_RT_HALF_LIFE_SECONDS = 5400         # avg response time that scores 0.5 (90 min)
-_RT_STEEPNESS = 1.2                  # logistic steepness for rt_score
-_SILENCE_GRACE_DAYS = 1.0            # mutual silence at/below this scores 1.0
-_SILENCE_DEAD_DAYS = 3.0             # mutual silence at/above this makes the week's silence 0.0
-_NEGLECT_UNIT_HOURS = 12.0           # a single one-sided wait this long = 1.0 neglect unit
-_NEGLECT_SATURATION = 3.0            # this many neglect units in a week drives neglect_score to 0
-_HEALTH_W_RT = 0.25                  # responsiveness *when present*
-_HEALTH_W_BALANCE = 0.15             # who carries the conversation-starting
-_HEALTH_W_NEGLECT = 0.30             # one-sided abandonment (volume-robust)
-_HEALTH_W_SILENCE = 0.30             # mutual silence — weights sum to 1.0
-_TREND_DELTA = 0.12                  # symmetric trend threshold
-_TURNING_POINT_MIN_DROP = 0.15       # min leading-vs-trailing health drop to flag a turning point
-_CLOSING_WINDOW_WEEKS = 3            # the final stretch inspected for a fade-out
-_CLOSING_MIN_BASELINE_WEEKS = 4      # weeks before the window needed to call anything "normal"
-_CLOSING_VOLUME_RATIO = 0.5          # window volume at/below this share of baseline = fade-out
-_CLOSING_SILENCE_MIN_DAYS = 1.5      # a window silence must be at least this long to count
-_CLOSING_SILENCE_FACTOR = 2.0        # ...and at least this many times the longest earlier silence
-_CLOSING_START_RATIO = 0.7           # first window week below this share of baseline marks the start
+_DELAY_THRESHOLD = 3 * 3600  # seconds; a turn handoff slower than this starts to count as neglect
+_RT_HALF_LIFE_SECONDS = 5400  # avg response time that scores 0.5 (90 min)
+_RT_STEEPNESS = 1.2  # logistic steepness for rt_score
+_SILENCE_GRACE_DAYS = 1.0  # mutual silence at/below this scores 1.0
+_SILENCE_DEAD_DAYS = 3.0  # mutual silence at/above this makes the week's silence 0.0
+_NEGLECT_UNIT_HOURS = 12.0  # a single one-sided wait this long = 1.0 neglect unit
+_NEGLECT_SATURATION = 3.0  # this many neglect units in a week drives neglect_score to 0
+_HEALTH_W_RT = 0.25  # responsiveness *when present*
+_HEALTH_W_BALANCE = 0.15  # who carries the conversation-starting
+_HEALTH_W_NEGLECT = 0.30  # one-sided abandonment (volume-robust)
+_HEALTH_W_SILENCE = 0.30  # mutual silence — weights sum to 1.0
+_TREND_DELTA = 0.12  # symmetric trend threshold
+_TURNING_POINT_MIN_DROP = 0.15  # min leading-vs-trailing health drop to flag a turning point
+_CLOSING_WINDOW_WEEKS = 3  # the final stretch inspected for a fade-out
+_CLOSING_MIN_BASELINE_WEEKS = 4  # weeks before the window needed to call anything "normal"
+_CLOSING_VOLUME_RATIO = 0.5  # window volume at/below this share of baseline = fade-out
+_CLOSING_SILENCE_MIN_DAYS = 1.5  # a window silence must be at least this long to count
+_CLOSING_SILENCE_FACTOR = 2.0  # ...and at least this many times the longest earlier silence
+_CLOSING_START_RATIO = 0.7  # first window week below this share of baseline marks the start
 
 
 def _iter_turn_handoffs(msgs: list[ParsedMessage]):
@@ -471,15 +469,16 @@ def _closing_phase(evolution: list[dict]) -> dict:
     baseline_max = max((e["silence_gap_days"] or 0.0) for e in prior)
     window_max = max((e["silence_gap_days"] or 0.0) for e in window)
 
-    detected = volume_ratio <= _CLOSING_VOLUME_RATIO or _closing_silence_hit(window_max, baseline_max)
+    detected = volume_ratio <= _CLOSING_VOLUME_RATIO or _closing_silence_hit(
+        window_max, baseline_max
+    )
 
     start = None
     if detected:
         start = window[0]["period_start"]
         for e in window:
-            if (
-                e["messages_per_day"] <= _CLOSING_START_RATIO * base
-                or _closing_silence_hit(e["silence_gap_days"], baseline_max)
+            if e["messages_per_day"] <= _CLOSING_START_RATIO * base or _closing_silence_hit(
+                e["silence_gap_days"], baseline_max
             ):
                 start = e["period_start"]
                 break
@@ -605,18 +604,20 @@ def _response_decay(msgs: list[ParsedMessage]) -> dict:
         neglect_units = round(weekly_neglect[week], 3)
         max_gap = weekly_max_gap.get(week)
 
-        evolution.append({
-            "period": week,
-            "period_start": _week_start(week),
-            "avg_response_seconds": avg_rt,
-            "message_count": weekly_msgs[week],
-            "messages_per_day": round(weekly_msgs[week] / _covered_days(week), 1),
-            "initiative_imbalance": imbalance,
-            "delay_rate": delay_rate,
-            "neglect_units": neglect_units,
-            "silence_gap_days": round(max_gap, 1) if max_gap is not None else None,
-            "turns": turns,
-        })
+        evolution.append(
+            {
+                "period": week,
+                "period_start": _week_start(week),
+                "avg_response_seconds": avg_rt,
+                "message_count": weekly_msgs[week],
+                "messages_per_day": round(weekly_msgs[week] / _covered_days(week), 1),
+                "initiative_imbalance": imbalance,
+                "delay_rate": delay_rate,
+                "neglect_units": neglect_units,
+                "silence_gap_days": round(max_gap, 1) if max_gap is not None else None,
+                "turns": turns,
+            }
+        )
 
     def _health(e: dict) -> float:
         rt = _rt_score(e["avg_response_seconds"])
@@ -711,15 +712,14 @@ def _delayed_replies(
     total = sum(delayed.values())
     return {
         "per_person": dict(delayed),
-        "share": {
-            p: round(c / total, 3) for p, c in delayed.items()
-        } if total else {},
+        "share": {p: round(c / total, 3) for p, c in delayed.items()} if total else {},
         "total": total,
         "threshold_hours": threshold_hours,
     }
 
 
 # ── Shared helpers (importable by other analyzers) ────────────────────────────
+
 
 def _gap_p95_seconds(msgs: list[ParsedMessage]) -> float | None:
     """
@@ -792,6 +792,7 @@ def split_into_blocks(
 
 
 # ── Private helpers ───────────────────────────────────────────────────────────
+
 
 def _split_into_blocks(msgs: list[ParsedMessage]) -> list[list[ParsedMessage]]:
     return split_into_blocks(msgs)

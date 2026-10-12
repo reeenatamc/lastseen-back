@@ -5,6 +5,7 @@ The Anthropic client is mocked so tests run without a real API key.
 The mock returns a deterministic, valid narrative JSON, letting us verify
 payload construction, context wiring, and error-handling paths in isolation.
 """
+
 from datetime import datetime, timedelta
 from unittest.mock import MagicMock, patch
 
@@ -94,6 +95,7 @@ def _mock_client(narrative: dict = MOCK_NARRATIVE):
 
     # Use actual json.dumps to produce valid JSON
     import json
+
     mock_block.text = json.dumps(narrative)
 
     mock_response = MagicMock()
@@ -108,6 +110,7 @@ def _mock_client(narrative: dict = MOCK_NARRATIVE):
 
 
 # ── _build_payload ────────────────────────────────────────────────────────────
+
 
 def test_build_payload_includes_participants():
     chat = _make_chat()
@@ -153,6 +156,7 @@ def test_build_payload_no_raw_content():
 
 # ── closing phase, weekly timeline and conflicts ─────────────────────────────
 
+
 def _week_entry(i: int, health: float = 0.8, per_day: float = 200.0) -> dict:
     start = (BASE + timedelta(weeks=i)).strftime("%Y-%m-%d")
     return {"period_start": start, "health": health, "messages_per_day": per_day}
@@ -187,14 +191,16 @@ def test_build_payload_omits_closing_phase_when_not_detected():
 
 
 def test_build_payload_includes_closing_phase_when_detected():
-    context = _context_with(closing_phase={
-        "detected": True,
-        "start": "2024-06-10",
-        "volume_ratio": 0.31,
-        "max_silence_days": 2.8,
-        "baseline_max_silence_days": 0.6,
-        "window_weeks": 3,
-    })
+    context = _context_with(
+        closing_phase={
+            "detected": True,
+            "start": "2024-06-10",
+            "volume_ratio": 0.31,
+            "max_silence_days": 2.8,
+            "baseline_max_silence_days": 0.6,
+            "window_weeks": 3,
+        }
+    )
     payload = _build_payload(_make_chat(), context)
     assert payload["tramo_final"]["inicio"] == "10/06/2024"
     assert payload["tramo_final"]["volumen_respecto_a_lo_habitual"] == pytest.approx(0.31)
@@ -297,7 +303,7 @@ def test_build_payload_omits_conflicts_when_none_or_errored():
 
 
 def test_conflict_summary_keeps_heaviest_episodes_in_date_order():
-    episodes = [_episode(day, mentions=3) for day in range(0, 60, 2)]   # 30 light ones
+    episodes = [_episode(day, mentions=3) for day in range(0, 60, 2)]  # 30 light ones
     episodes[4] = _episode(8, mentions=20)
     episodes[20] = _episode(40, mentions=4, blocked=True)
     summary = _conflict_summary({"episodes": episodes, "system_events": {}})
@@ -332,6 +338,7 @@ def test_build_payload_includes_recent_sentiment():
 
 # ── _fmt_seconds ──────────────────────────────────────────────────────────────
 
+
 def test_fmt_seconds_minutes():
     assert _fmt_seconds(300) == "5 minutos"
 
@@ -350,6 +357,7 @@ def test_fmt_seconds_none():
 
 # ── _short_date ───────────────────────────────────────────────────────────────
 
+
 def test_short_date_formats_correctly():
     assert _short_date("2024-01-15T10:00:00") == "15/01/2024"
 
@@ -359,6 +367,7 @@ def test_short_date_none():
 
 
 # ── Full analyzer ─────────────────────────────────────────────────────────────
+
 
 def test_analyzer_returns_narrative_fields():
     chat = _make_chat()
@@ -370,7 +379,11 @@ def test_analyzer_returns_narrative_fields():
 
     assert result.analyzer == "narrative"
     assert set(result.data.keys()) == {
-        "resumen", "dinamica", "punto_de_quiebre", "estado_actual", "reflexion"
+        "resumen",
+        "dinamica",
+        "punto_de_quiebre",
+        "estado_actual",
+        "reflexion",
     }
 
 
@@ -427,6 +440,7 @@ def test_analyzer_context_passed_to_payload():
     def capture_call(**kwargs):
         captured["messages"] = kwargs.get("messages", [])
         import json
+
         mock_block = MagicMock()
         mock_block.type = "text"
         mock_block.text = json.dumps(MOCK_NARRATIVE)
@@ -443,5 +457,5 @@ def test_analyzer_context_passed_to_payload():
             NarrativeAnalyzer().analyze(chat, context=MOCK_CONTEXT)
 
     user_message = captured["messages"][0]["content"]
-    assert "deteriorating" in user_message   # from context["temporal"]
-    assert "positive" in user_message        # from context["sentiment"]
+    assert "deteriorating" in user_message  # from context["temporal"]
+    assert "positive" in user_message  # from context["sentiment"]

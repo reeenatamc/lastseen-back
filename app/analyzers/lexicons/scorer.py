@@ -18,6 +18,7 @@ The orthographic-emphasis multiplier from the intimate layer is applied to
 the final fused score (not just to its own contribution) because emphasis
 expresses the intensity of the whole utterance.
 """
+
 from __future__ import annotations
 
 from .intimate_es import _WORD_RE, intimate_score
@@ -31,10 +32,10 @@ from .loader import load_emoji_lexicon, load_spanish_lexicon
 # bias against couple-chat affection (Twitter training set), and the intimate
 # layer is the highest-precision signal for messages where it fires. When the
 # intimate layer is silent, only the ML drives the score (no false uplift).
-_W_BASE = 0.38        # pysentimiento (ML)
-_W_LEXICON = 0.20     # NRC/AFINN ES dictionary
-_W_INTIMATE = 0.32    # hand-curated couple-chat vocab
-_W_EMOJI = 0.10       # emoji_sentiment ranking
+_W_BASE = 0.38  # pysentimiento (ML)
+_W_LEXICON = 0.20  # NRC/AFINN ES dictionary
+_W_INTIMATE = 0.32  # hand-curated couple-chat vocab
+_W_EMOJI = 0.10  # emoji_sentiment ranking
 
 # Emoji-sentiment data is from 2015; many post-2018 affect-heavy emojis
 # (pleading face, hearts in new colors, etc.) aren't in the ranking. This
@@ -43,35 +44,35 @@ _W_EMOJI = 0.10       # emoji_sentiment ranking
 # All values in [-1, +1]; positive emojis match the ranking's mean for the
 # "hearts" cluster (~+0.7).
 _EMOJI_OVERRIDES: dict[str, float] = {
-    "🩷": 0.75,    # pink heart (U+1FA77, 2022)
-    "🩵": 0.70,    # light blue heart
-    "🩶": 0.55,    # grey heart (more melancholic)
-    "🤍": 0.70,    # white heart
-    "🖤": 0.30,    # black heart (used playfully in love chats too)
-    "🤎": 0.55,    # brown heart
-    "🧡": 0.70,    # orange heart
-    "💗": 0.75,    # sparkling heart
-    "💖": 0.80,    # heart with stars
-    "💝": 0.75,    # heart with ribbon
-    "💞": 0.75,    # revolving hearts
-    "💕": 0.75,    # two hearts
-    "💓": 0.70,    # beating heart
-    "💘": 0.70,    # heart with arrow
-    "💟": 0.65,    # heart decoration
-    "💌": 0.65,    # love letter
-    "🥺": 0.10,    # pleading face — used affectionately in couple chats
-    "🥹": 0.30,    # face holding back tears (often happy-tearful in this register)
-    "🫶": 0.65,    # heart hands
-    "🫦": 0.20,    # biting lip — flirty
-    "🥰": 0.85,    # smiling face with hearts
-    "😍": 0.80,    # heart eyes (already in ranking actually, but reaffirm)
-    "😘": 0.75,    # kiss face
-    "😚": 0.60,    # kissing closed eyes
-    "🤗": 0.55,    # hugging face
-    "👩‍❤️‍👩": 0.80,    # couple-with-heart (women)
-    "👨‍❤️‍👨": 0.80,    # couple-with-heart (men)
-    "💑": 0.75,    # couple with heart
-    "💏": 0.75,    # kiss
+    "🩷": 0.75,  # pink heart (U+1FA77, 2022)
+    "🩵": 0.70,  # light blue heart
+    "🩶": 0.55,  # grey heart (more melancholic)
+    "🤍": 0.70,  # white heart
+    "🖤": 0.30,  # black heart (used playfully in love chats too)
+    "🤎": 0.55,  # brown heart
+    "🧡": 0.70,  # orange heart
+    "💗": 0.75,  # sparkling heart
+    "💖": 0.80,  # heart with stars
+    "💝": 0.75,  # heart with ribbon
+    "💞": 0.75,  # revolving hearts
+    "💕": 0.75,  # two hearts
+    "💓": 0.70,  # beating heart
+    "💘": 0.70,  # heart with arrow
+    "💟": 0.65,  # heart decoration
+    "💌": 0.65,  # love letter
+    "🥺": 0.10,  # pleading face — used affectionately in couple chats
+    "🥹": 0.30,  # face holding back tears (often happy-tearful in this register)
+    "🫶": 0.65,  # heart hands
+    "🫦": 0.20,  # biting lip — flirty
+    "🥰": 0.85,  # smiling face with hearts
+    "😍": 0.80,  # heart eyes (already in ranking actually, but reaffirm)
+    "😘": 0.75,  # kiss face
+    "😚": 0.60,  # kissing closed eyes
+    "🤗": 0.55,  # hugging face
+    "👩‍❤️‍👩": 0.80,  # couple-with-heart (women)
+    "👨‍❤️‍👨": 0.80,  # couple-with-heart (men)
+    "💑": 0.75,  # couple with heart
+    "💏": 0.75,  # kiss
 }
 
 

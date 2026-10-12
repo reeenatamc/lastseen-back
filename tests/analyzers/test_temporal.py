@@ -38,10 +38,10 @@ def healthy_chat() -> ParsedChat:
     for block in range(20):
         t = BASE + timedelta(days=block * 2)
         msgs += [
-            _msg("Alice", "hey there!",       t),
-            _msg("Bob",   "hello!",            t + timedelta(minutes=5)),
+            _msg("Alice", "hey there!", t),
+            _msg("Bob", "hello!", t + timedelta(minutes=5)),
             _msg("Alice", "how was your day?", t + timedelta(minutes=10)),
-            _msg("Bob",   "was really good!",  t + timedelta(minutes=15)),
+            _msg("Bob", "was really good!", t + timedelta(minutes=15)),
         ]
     return _make_chat(msgs)
 
@@ -81,6 +81,7 @@ def decayed_chat() -> ParsedChat:
 
 # ── Overview ──────────────────────────────────────────────────────────────────
 
+
 def test_overview_totals():
     result = TemporalAnalyzer().analyze(healthy_chat())
     ov = result.data["overview"]
@@ -96,6 +97,7 @@ def test_overview_date_range():
 
 
 # ── Response time ─────────────────────────────────────────────────────────────
+
 
 def test_response_time_healthy():
     result = TemporalAnalyzer().analyze(healthy_chat())
@@ -122,6 +124,7 @@ def test_response_time_evolution_has_periods():
 
 # ── Initiative balance ────────────────────────────────────────────────────────
 
+
 def test_initiative_balance_healthy():
     result = TemporalAnalyzer().analyze(healthy_chat())
     ib = result.data["initiative_balance"]
@@ -139,14 +142,10 @@ def test_initiative_balance_decayed():
     ib = result.data["initiative_balance"]
     # Alice has more initiative OR more abandoned_opens than Bob —
     # she carries more of the conversational effort
-    alice_effort = (
-        ib["per_person"].get("Alice", 0)
-        + ib["abandoned_open"]["per_person"].get("Alice", 0)
+    alice_effort = ib["per_person"].get("Alice", 0) + ib["abandoned_open"]["per_person"].get(
+        "Alice", 0
     )
-    bob_effort = (
-        ib["per_person"].get("Bob", 0)
-        + ib["abandoned_open"]["per_person"].get("Bob", 0)
-    )
+    bob_effort = ib["per_person"].get("Bob", 0) + ib["abandoned_open"]["per_person"].get("Bob", 0)
     assert alice_effort > bob_effort
 
 
@@ -193,11 +192,11 @@ def test_late_reply_not_counted_as_initiative():
     base = datetime(2024, 1, 1, 10, 0)
     msgs = [
         # Block 1: Alice opens, Alice closes (Bob never responded)
-        _msg("Alice", "hey",          base),
-        _msg("Alice", "estas ahi?",   base + timedelta(minutes=5)),
+        _msg("Alice", "hey", base),
+        _msg("Alice", "estas ahi?", base + timedelta(minutes=5)),
         # Block 2: Bob finally responds (late reply)
-        _msg("Bob",   "perdon",       base + timedelta(hours=6)),
-        _msg("Alice", "ok",           base + timedelta(hours=6, minutes=2)),
+        _msg("Bob", "perdon", base + timedelta(hours=6)),
+        _msg("Alice", "ok", base + timedelta(hours=6, minutes=2)),
     ]
     ib = _initiative_balance(_make_chat(msgs).messages)
     assert ib["abandoned_open"]["per_person"].get("Alice", 0) >= 1
@@ -217,25 +216,25 @@ def test_genuine_initiative_requires_natural_prior_and_last_word():
     # Block 1: Alice opens, Bob closes (natural exchange, opener ≠ last)
     # Block 2: Alice opens AND Alice closes → genuine sustained initiative
     msgs_sustained = [
-        _msg("Alice", "hey",       base),
-        _msg("Bob",   "hola",      base + timedelta(minutes=5)),
-        _msg("Alice", "que tal?",  base + timedelta(minutes=10)),
-        _msg("Bob",   "bien",      base + timedelta(minutes=15)),
-        _msg("Alice", "sigues?",   base + timedelta(hours=6)),
-        _msg("Bob",   "si",        base + timedelta(hours=6, minutes=3)),
-        _msg("Alice", "buenoo",    base + timedelta(hours=6, minutes=5)),  # Alice last
+        _msg("Alice", "hey", base),
+        _msg("Bob", "hola", base + timedelta(minutes=5)),
+        _msg("Alice", "que tal?", base + timedelta(minutes=10)),
+        _msg("Bob", "bien", base + timedelta(minutes=15)),
+        _msg("Alice", "sigues?", base + timedelta(hours=6)),
+        _msg("Bob", "si", base + timedelta(hours=6, minutes=3)),
+        _msg("Alice", "buenoo", base + timedelta(hours=6, minutes=5)),  # Alice last
     ]
     # Call pure function directly — bypasses the MIN_MESSAGES threshold
     ib = _initiative_balance(_make_chat(msgs_sustained).messages)
     assert ib["per_person"].get("Alice", 0) >= 1
 
     msgs_abandoned = [
-        _msg("Alice", "hey",       base),
-        _msg("Bob",   "hola",      base + timedelta(minutes=5)),
-        _msg("Alice", "que tal?",  base + timedelta(minutes=10)),
-        _msg("Bob",   "bien",      base + timedelta(minutes=15)),
-        _msg("Alice", "sigues?",   base + timedelta(hours=6)),
-        _msg("Bob",   "si",        base + timedelta(hours=6, minutes=3)),
+        _msg("Alice", "hey", base),
+        _msg("Bob", "hola", base + timedelta(minutes=5)),
+        _msg("Alice", "que tal?", base + timedelta(minutes=10)),
+        _msg("Bob", "bien", base + timedelta(minutes=15)),
+        _msg("Alice", "sigues?", base + timedelta(hours=6)),
+        _msg("Bob", "si", base + timedelta(hours=6, minutes=3)),
     ]
     ib2 = _initiative_balance(_make_chat(msgs_abandoned).messages)
     assert ib2["abandoned_open"]["per_person"].get("Alice", 0) >= 1
@@ -244,10 +243,10 @@ def test_genuine_initiative_requires_natural_prior_and_last_word():
 def test_double_text_detected():
     base = datetime(2024, 1, 1, 10, 0)
     msgs = [
-        _msg("Bob",   "hi",         base),
-        _msg("Alice", "hey",        base + timedelta(minutes=1)),
+        _msg("Bob", "hi", base),
+        _msg("Alice", "hey", base + timedelta(minutes=1)),
         _msg("Alice", "sigo aqui?", base + timedelta(hours=5)),
-        _msg("Bob",   "sorry",      base + timedelta(hours=5, minutes=10)),
+        _msg("Bob", "sorry", base + timedelta(hours=5, minutes=10)),
     ]
     ib = _initiative_balance(_make_chat(msgs).messages)
     assert ib["double_text"]["per_person"].get("Alice", 0) >= 1
@@ -257,27 +256,28 @@ def test_initiative_sustained_requires_last_word():
     base = datetime(2024, 1, 1, 10, 0)
 
     abandoned = [
-        _msg("Alice", "hey",     base),
-        _msg("Bob",   "hola",    base + timedelta(minutes=5)),
+        _msg("Alice", "hey", base),
+        _msg("Bob", "hola", base + timedelta(minutes=5)),
         _msg("Alice", "que tal", base + timedelta(minutes=10)),
-        _msg("Bob",   "bien",    base + timedelta(minutes=15)),
-        _msg("Bob",   "extra",   base + timedelta(hours=6)),
+        _msg("Bob", "bien", base + timedelta(minutes=15)),
+        _msg("Bob", "extra", base + timedelta(hours=6)),
     ]
     ib = _initiative_balance(_make_chat(abandoned).messages)
     assert ib["abandoned_open"]["per_person"].get("Alice", 0) >= 1
 
     sustained = [
-        _msg("Alice", "hey",     base),
-        _msg("Bob",   "hola",    base + timedelta(minutes=5)),
-        _msg("Bob",   "que tal", base + timedelta(minutes=8)),
-        _msg("Alice", "bien",    base + timedelta(minutes=12)),
-        _msg("Bob",   "extra",   base + timedelta(hours=6)),
+        _msg("Alice", "hey", base),
+        _msg("Bob", "hola", base + timedelta(minutes=5)),
+        _msg("Bob", "que tal", base + timedelta(minutes=8)),
+        _msg("Alice", "bien", base + timedelta(minutes=12)),
+        _msg("Bob", "extra", base + timedelta(hours=6)),
     ]
     ib2 = _initiative_balance(_make_chat(sustained).messages)
     assert ib2["per_person"].get("Alice", 0) >= 1
 
 
 # ── Activity patterns ─────────────────────────────────────────────────────────
+
 
 def test_activity_patterns_keys():
     result = TemporalAnalyzer().analyze(healthy_chat())
@@ -296,6 +296,7 @@ def test_activity_patterns_by_hour_sum():
 
 # ── Conversation gaps ─────────────────────────────────────────────────────────
 
+
 def test_conversation_gaps_sorted_descending():
     result = TemporalAnalyzer().analyze(healthy_chat())
     top = result.data["conversation_gaps"]["top_gaps"]
@@ -313,6 +314,7 @@ def test_conversation_gaps_distribution_complete():
 
 
 # ── Message length ────────────────────────────────────────────────────────────
+
 
 def test_message_length_per_person():
     result = TemporalAnalyzer().analyze(healthy_chat())
@@ -334,6 +336,7 @@ def test_message_length_skips_media():
 
 
 # ── Response decay ────────────────────────────────────────────────────────────
+
 
 def test_decay_healthy_trend():
     result = TemporalAnalyzer().analyze(healthy_chat())
@@ -377,6 +380,7 @@ def test_decay_evolution_fields():
 
 
 # ── Closing phase ─────────────────────────────────────────────────────────────
+
 
 def _daily_chat(
     weeks: int,
@@ -528,6 +532,7 @@ def test_closing_phase_start_by_silence_week():
 
 
 # ── Edge cases ────────────────────────────────────────────────────────────────
+
 
 def test_single_message_returns_error():
     chat = _make_chat([_msg("Alice", "hi", BASE)])

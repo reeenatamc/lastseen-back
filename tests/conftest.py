@@ -5,6 +5,7 @@ import pytest_asyncio
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.pool import NullPool
+
 # Rate-limit counters in memory during tests (set before the app is imported): no Redis
 # state leaks between runs and nothing is left blocked in the dev Redis.
 os.environ.setdefault("RATE_LIMIT_STORAGE_URI", "memory://")

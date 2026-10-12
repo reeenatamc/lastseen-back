@@ -21,6 +21,7 @@ router = APIRouter()
 
 # --- Schemas ---
 
+
 class PackOut(BaseModel):
     key: str
     credits: int
@@ -42,6 +43,7 @@ class CheckoutOut(BaseModel):
 
 
 # --- Endpoints ---
+
 
 @router.get("/packs", response_model=list[PackOut])
 async def list_packs():

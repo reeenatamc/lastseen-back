@@ -9,6 +9,7 @@ or model output.
 Output per message: a score in [-1, 1] and an emotion label from the same set
 `emotions_per_person` already aggregates.
 """
+
 from __future__ import annotations
 
 import json
@@ -21,14 +22,18 @@ from app.analyzers.redaction import redact
 
 logger = logging.getLogger(__name__)
 
-_BATCH_SIZE = 50  # messages per request: ~4 s each (output tokens set the latency) and cheap to retry
+_BATCH_SIZE = (
+    50  # messages per request: ~4 s each (output tokens set the latency) and cheap to retry
+)
 _MAX_RETRIES = 2  # extra attempts per batch after the first one
 _RETRY_BASE_DELAY = 1.0  # seconds; doubles on each retry
 _MAX_MISSING_SHARE = 0.1  # more unscored messages than this share of the total = unusable result
 _CONCURRENCY = 8  # parallel requests: a 2000-message sample is 40 batches, done in about 5 rounds
 _MAX_REDACT_CHARS = 2000  # cap before redacting so regex work is bounded per message
 _MAX_CHARS = 300  # per-message cap: tone shows early and long texts only add cost
-_TIMEOUT_MS = 30_000  # google-genai HttpOptions(timeout=...) in ms; a stalled batch is retried, not waited on
+_TIMEOUT_MS = (
+    30_000  # google-genai HttpOptions(timeout=...) in ms; a stalled batch is retried, not waited on
+)
 
 EMOTIONS = ("joy", "sadness", "anger", "fear", "disgust", "surprise", "others")
 _DEFAULT_EMOTION = "others"
@@ -69,6 +74,7 @@ class SentimentLLMError(RuntimeError):
 
 
 # ── Pure helpers ──────────────────────────────────────────────────────────────
+
 
 def _prepare(text: str) -> str:
     """Bound the input, redact personal data, then truncate to the final size.
@@ -120,6 +126,7 @@ def _parse_batch(raw: str, size: int) -> tuple[list[float], list[str], int]:
 
 # ── Gemini call ───────────────────────────────────────────────────────────────
 
+
 def _gemini_generate(api_key: str, model: str) -> Callable[[str], str]:
     """
     Build the default `generate`: prompt -> JSON string, via google-genai.
@@ -152,6 +159,7 @@ def _gemini_generate(api_key: str, model: str) -> Callable[[str], str]:
 
 # ── Orchestration ─────────────────────────────────────────────────────────────
 
+
 def _score_batch(
     texts: list[str], generate: Callable[[str], str]
 ) -> tuple[list[float], list[str], int]:
@@ -167,7 +175,9 @@ def _score_batch(
             last_error = exc
             logger.warning(
                 "sentiment batch attempt %d/%d failed: %s",
-                attempt + 1, _MAX_RETRIES + 1, type(exc).__name__,
+                attempt + 1,
+                _MAX_RETRIES + 1,
+                type(exc).__name__,
             )
     raise SentimentLLMError(
         f"batch failed after {_MAX_RETRIES + 1} attempts ({type(last_error).__name__})"
@@ -208,6 +218,9 @@ def score_messages(
 
     logger.info(
         "sentiment llm scored %d messages in %d batches (%d missing) in %.1fs",
-        len(texts), len(batches), missing, time.monotonic() - started,
+        len(texts),
+        len(batches),
+        missing,
+        time.monotonic() - started,
     )
     return scores, emotions

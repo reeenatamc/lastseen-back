@@ -27,6 +27,7 @@ Conventions
 
 This file is meant to be tunable. Add entries as you read more chats.
 """
+
 from __future__ import annotations
 
 import re
@@ -112,7 +113,7 @@ VOCATIVES: dict[str, float] = {
     "muñeca": 0.55,
     "muñequita": 0.65,
     # Playful affectionate pet-names
-    "boba": 0.4,    # used playfully between partners
+    "boba": 0.4,  # used playfully between partners
     "bobita": 0.5,
     "bobo": 0.35,
     "bobito": 0.45,
@@ -120,7 +121,7 @@ VOCATIVES: dict[str, float] = {
     "tontito": 0.35,
     "loquita": 0.4,
     "loquito": 0.4,
-    "bavita": 0.4,    # phonetic spelling, common in voseo regions
+    "bavita": 0.4,  # phonetic spelling, common in voseo regions
     "bavito": 0.35,
 }
 
@@ -154,7 +155,7 @@ DECLARATIONS: dict[str, float] = {
     "amaré": 0.7,
     "jamás amaré a alguien": 0.85,
     "nunca amaré a alguien": 0.85,
-    "te extraño": 0.5,   # mild positive — missing implies caring
+    "te extraño": 0.5,  # mild positive — missing implies caring
     "te extraño mucho": 0.65,
     "te extraño tanto": 0.7,
     "me haces feliz": 0.85,
@@ -194,10 +195,10 @@ PLAYFUL_NEGATIVE: dict[str, float] = {
     "wtf amor": -0.1,
     "wtf miamor": -0.1,
     "wtfff": -0.1,
-    "te re mil pasaste": -0.05,    # mock-scolding, mostly affectionate
+    "te re mil pasaste": -0.05,  # mock-scolding, mostly affectionate
     "te pasaste": -0.05,
     "te pasaste de": -0.05,
-    "boba": -0.05,    # mock-insult; net affectionate, see VOCATIVES override
+    "boba": -0.05,  # mock-insult; net affectionate, see VOCATIVES override
 }
 
 # ── Genuinely negative expressions (relationship-specific) ──────────
@@ -226,7 +227,7 @@ GENUINE_NEGATIVE: dict[str, float] = {
 
 # ── Affectionate phrasing & general positive ────────────────────────
 GENERAL_POSITIVE: dict[str, float] = {
-    "amar": 0.55,        # NRC gap
+    "amar": 0.55,  # NRC gap
     "amaste": 0.55,
     "amada": 0.55,
     "amado": 0.55,
@@ -256,7 +257,7 @@ GENERAL_POSITIVE: dict[str, float] = {
 
 # ── Genuine negative (basic gap-fill) ───────────────────────────────
 GENERAL_NEGATIVE: dict[str, float] = {
-    "odiar": -0.55,        # NRC gap
+    "odiar": -0.55,  # NRC gap
     "odio": -0.55,
     "odias": -0.55,
     "odié": -0.55,
@@ -308,14 +309,18 @@ for word, val in GENERAL_NEGATIVE.items():
 # warmth markers regardless of base word; we apply a +0.15 boost (additive,
 # capped) only if the word is NOT already in our intimate lexicon (to avoid
 # double-counting "amorcito" which is already in VOCATIVES).
-_DIMINUTIVE_RE = re.compile(r"\b\w{4,}(?:cit[oa]|illit[oa]|cit[oa]s|illit[oa]s|illa|illas|illo|illos|uelo|uela|ito|ita|itos|itas)\b", re.IGNORECASE)
+_DIMINUTIVE_RE = re.compile(
+    r"\b\w{4,}(?:cit[oa]|illit[oa]|cit[oa]s|illit[oa]s|illa|illas|illo|illos|uelo|uela|ito|ita|itos|itas)\b",
+    re.IGNORECASE,
+)
 
 # ── Orthographic emphasis ───────────────────────────────────────────────
 # Multiplier on the magnitude of the score when a message has heavy emphasis.
 # Capped so that mild emphasis (one !) doesn't multiply; only repeated emphasis.
-_REPEAT_CHAR_RE = re.compile(r"([a-záéíóúñü])\1{2,}", re.IGNORECASE)        # "amoor" → match
-_REPEAT_PUNCT_RE = re.compile(r"([!?¡¿])\1{2,}")                            # "!!!" → match
-_ALL_CAPS_RE = re.compile(r"\b[A-ZÁÉÍÓÚÑÜ]{4,}\b")                          # "AMOR" → match
+_REPEAT_CHAR_RE = re.compile(r"([a-záéíóúñü])\1{2,}", re.IGNORECASE)  # "amoor" → match
+_REPEAT_PUNCT_RE = re.compile(r"([!?¡¿])\1{2,}")  # "!!!" → match
+_ALL_CAPS_RE = re.compile(r"\b[A-ZÁÉÍÓÚÑÜ]{4,}\b")  # "AMOR" → match
+
 
 def _emphasis_multiplier(text: str) -> float:
     """
@@ -372,7 +377,7 @@ def _diminutive_count(text_lower: str) -> int:
     count = 0
     for m in _DIMINUTIVE_RE.finditer(text_lower):
         tok = m.group(0)
-        if tok not in _TOKENS:    # avoid double-counting "amorcito"
+        if tok not in _TOKENS:  # avoid double-counting "amorcito"
             count += 1
     return count
 

@@ -107,10 +107,13 @@ def test_full_tier_runs_every_analyzer(monkeypatch):
         def analyze(self, chat, context=None):
             calls.append(self.name)
             from app.analyzers.base import AnalysisResult
+
             return AnalysisResult(analyzer=self.name, data={})
 
     monkeypatch.setattr(
-        pipeline, "_ANALYZERS", [_Fake(n) for n in ("temporal", "sentiment", "conflict", "narrative")]
+        pipeline,
+        "_ANALYZERS",
+        [_Fake(n) for n in ("temporal", "sentiment", "conflict", "narrative")],
     )
     out = pipeline.run_pipeline(analysis_id=None, content=_WHATSAPP, platform="whatsapp")
     assert out["tier"] == "full"
@@ -147,6 +150,7 @@ def test_preview_is_never_incomplete():
 
 
 # ── error codes ───────────────────────────────────────────────────────────────
+
 
 @pytest.mark.parametrize(
     "exc, code",
