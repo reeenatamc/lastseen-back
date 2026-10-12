@@ -1,0 +1,17 @@
+target-version = "py311"
+line-length = 100
+extend-exclude = ["alembic/versions"]
+
+[lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "S", "BLE"]
+ignore = ["E501"]  # long lines are left to the formatter
+
+[lint.per-file-ignores]
+"tests/**" = ["S101", "S105", "S106"]
+
+[format]
+quote-style = "double"
+
+[lint.flake8-bugbear]
+# FastAPI dependency markers are meant to live in default arguments
+extend-immutable-calls = ["fastapi.Depends", "fastapi.Query", "fastapi.File", "fastapi.Form", "fastapi.Header", "fastapi.Body"]
