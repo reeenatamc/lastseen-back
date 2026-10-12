@@ -145,7 +145,7 @@ class NarrativeAnalyzer(BaseAnalyzer):
             else:
                 narrative = _call_gemini(payload, settings.GEMINI_API_KEY, settings.GEMINI_MODEL)
             return AnalysisResult(analyzer=self.name, data=narrative)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - any provider failure falls back the same way
             # Fixed code in the result; exception text can echo prompt content or API internals
             logger.warning("Narrative generation failed: %s", type(exc).__name__)
             return AnalysisResult(analyzer=self.name, data={"error": "llm_failed"})

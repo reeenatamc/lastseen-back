@@ -10,6 +10,7 @@ from __future__ import annotations
 import statistics
 from collections import defaultdict
 from datetime import datetime, timedelta
+from itertools import pairwise
 
 from app.analyzers.base import AnalysisResult, BaseAnalyzer
 from app.parsers.base import ParsedChat, ParsedMessage
@@ -198,7 +199,7 @@ def _initiative_balance(msgs: list[ParsedMessage]) -> dict:
         else:
             abandoned_opens[opener] += 1
 
-    for prev_block, curr_block in zip(blocks, blocks[1:]):
+    for prev_block, curr_block in pairwise(blocks):
         block_opener = prev_block[0].sender
         last_speaker = prev_block[-1].sender
         first_speaker = curr_block[0].sender
@@ -554,7 +555,7 @@ def _response_decay(msgs: list[ParsedMessage]) -> dict:
     # neglect: a handoff in the 3 h–24 h window is a one-sided wait; its
     # severity is the wait length, saturating at _NEGLECT_UNIT_HOURS so a
     # single catastrophic ghosting cannot count as more than one full unit.
-    for responder, gap, ts in _iter_turn_handoffs(msgs):
+    for _responder, gap, ts in _iter_turn_handoffs(msgs):
         wk = _week(ts)
         weekly_turns[wk] += 1
         if 0 < gap <= _MAX_RESPONSE_WINDOW.total_seconds():

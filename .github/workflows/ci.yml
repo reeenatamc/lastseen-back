@@ -53,6 +53,7 @@ jobs:
                  tests/analyzers/test_conflict.py \
                  tests/analyzers/test_redaction.py \
                  tests/analyzers/test_sentiment_llm.py \
+                 tests/analyzers/test_sentiment_aggregation.py \
                  tests/analyzers/lexicons/ \
                  tests/services/ \
                  -v

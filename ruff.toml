@@ -7,8 +7,6 @@ select = ["E", "F", "W", "I", "B", "UP", "SIM", "S", "BLE"]
 ignore = [
   "E501",    # long lines are left to the formatter
   "UP042",   # str+Enum -> StrEnum changes str() output; not worth it here
-  # findings still to fix one by one, tracked in an issue:
-  "B904", "B905", "B007", "BLE001", "S105",
 ]
 
 [lint.per-file-ignores]

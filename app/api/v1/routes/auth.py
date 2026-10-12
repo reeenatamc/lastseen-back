@@ -43,7 +43,7 @@ class UserOut(BaseModel):
 
 class TokenOut(BaseModel):
     access_token: str
-    token_type: str = "bearer"
+    token_type: str = "bearer"  # noqa: S105 - OAuth token type, not a secret
 
 
 # --- Helpers ---
@@ -140,7 +140,7 @@ async def google_login(request: Request, body: GoogleLoginRequest, db: DB):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid Google token",
-        )
+        ) from None
 
     google_sub = idinfo["sub"]
     email = idinfo.get("email")

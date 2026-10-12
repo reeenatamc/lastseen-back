@@ -99,11 +99,11 @@ async def lemonsqueezy_webhook(request: Request, db: DB):
 
     try:
         await process_event(db, event)
-    except Exception:
+    except Exception as exc:  # noqa: BLE001 - anything here should make the provider retry
         # Unexpected failure (e.g. DB down): 500 so the provider retries; processing is idempotent
         await db.rollback()
         logger.exception("Failed to process payment event %s", event.event_name)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="processing_failed"
-        )
+        ) from exc
     return {"status": "ok"}

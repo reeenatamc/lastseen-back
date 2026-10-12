@@ -227,7 +227,7 @@ def _score_local(
 
 def _per_person(msgs: list[ParsedMessage], scores: list[float]) -> dict:
     by_person: dict[str, list[float]] = defaultdict(list)
-    for msg, score in zip(msgs, scores):
+    for msg, score in zip(msgs, scores, strict=True):
         by_person[msg.sender].append(score)
 
     result = {}
@@ -269,7 +269,7 @@ def _per_person(msgs: list[ParsedMessage], scores: list[float]) -> dict:
 
 def _evolution(msgs: list[ParsedMessage], scores: list[float]) -> list[dict]:
     by_quarter: dict[str, dict[str, list[float]]] = defaultdict(lambda: defaultdict(list))
-    for msg, score in zip(msgs, scores):
+    for msg, score in zip(msgs, scores, strict=True):
         by_quarter[_quarter(msg.timestamp)][msg.sender].append(score)
 
     participants = sorted({m.sender for m in msgs})
@@ -297,7 +297,7 @@ def _emotional_drift(msgs: list[ParsedMessage], scores: list[float]) -> dict:
 
     p1, p2 = participants
     by_quarter: dict[str, dict[str, list[float]]] = defaultdict(lambda: defaultdict(list))
-    for msg, score in zip(msgs, scores):
+    for msg, score in zip(msgs, scores, strict=True):
         by_quarter[_quarter(msg.timestamp)][msg.sender].append(score)
 
     quarters = sorted(by_quarter)
@@ -353,7 +353,7 @@ def _evolution_weekly(msgs: list[ParsedMessage], scores: list[float]) -> list[di
     `n` counts every scored message of the week, whoever wrote it.
     """
     by_week: dict[str, dict[str, list[float]]] = defaultdict(lambda: defaultdict(list))
-    for msg, score in zip(msgs, scores):
+    for msg, score in zip(msgs, scores, strict=True):
         by_week[_week(msg.timestamp)][msg.sender].append(score)
 
     result = []
@@ -387,7 +387,7 @@ def _recent_shift(msgs: list[ParsedMessage], scores: list[float]) -> dict | None
     start = last - timedelta(days=_RECENT_WINDOW_DAYS)
     recent: dict[str, list[float]] = defaultdict(list)
     base: dict[str, list[float]] = defaultdict(list)
-    for msg, score in zip(msgs, scores):
+    for msg, score in zip(msgs, scores, strict=True):
         (recent if msg.timestamp >= start else base)[msg.sender].append(score)
 
     if sum(len(v) for v in recent.values()) < _RECENT_MIN_POINTS:
@@ -428,7 +428,7 @@ def _emotions_per_person(msgs: list[ParsedMessage], emotions: list[str]) -> dict
     """Aggregate dominant emotion frequencies per participant (pysentimiento only)."""
     by_person: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
     counts: dict[str, int] = defaultdict(int)
-    for msg, emo in zip(msgs, emotions):
+    for msg, emo in zip(msgs, emotions, strict=True):
         by_person[msg.sender][emo] += 1
         counts[msg.sender] += 1
 
@@ -486,7 +486,7 @@ def _score_messages_spanish(msgs: list[ParsedMessage]) -> list[float]:
     for i in range(0, len(texts), _BATCH_SIZE):
         batch_texts = texts[i : i + _BATCH_SIZE]
         outputs = analyzer.predict(batch_texts)
-        for text, out in zip(batch_texts, outputs):
+        for text, out in zip(batch_texts, outputs, strict=True):
             probas = out.probas
             base = probas.get("POS", 0.0) - probas.get("NEG", 0.0)
             scores.append(hybrid_score(text, base))

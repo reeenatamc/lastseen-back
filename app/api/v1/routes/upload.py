@@ -145,7 +145,7 @@ async def upload_chat(
                 date_from=date_from_iso,
                 date_to=date_to_iso,
             )
-        except Exception:
+        except Exception as exc:  # noqa: BLE001 - any enqueue failure must refund the credit
             # Charged but never queued: give the credit back and fail the analysis
             await refund_analysis_credit_async(db, analysis.id)
             analysis.status = AnalysisStatus.failed
@@ -153,7 +153,7 @@ async def upload_chat(
             await db.commit()
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="queue_unavailable"
-            )
+            ) from exc
         return UploadResponse(analysis_id=analysis.id, status=AnalysisStatus.pending, tier=tier)
 
     # Guests only ever get the free preview (no LLM analyzers)

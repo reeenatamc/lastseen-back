@@ -171,7 +171,7 @@ def _score_batch(
             time.sleep(_RETRY_BASE_DELAY * 2 ** (attempt - 1))
         try:
             return _parse_batch(generate(prompt), len(texts))
-        except Exception as exc:  # network, quota, bad JSON: all retried the same way
+        except Exception as exc:  # noqa: BLE001 - network, quota, bad JSON: all retried the same way
             last_error = exc
             logger.warning(
                 "sentiment batch attempt %d/%d failed: %s",
