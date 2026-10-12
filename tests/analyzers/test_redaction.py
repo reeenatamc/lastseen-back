@@ -4,7 +4,6 @@ import pytest
 
 from app.analyzers.redaction import redact
 
-
 # ── e-mails ───────────────────────────────────────────────────────────────────
 
 

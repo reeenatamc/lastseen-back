@@ -13,12 +13,12 @@ import pytest
 
 from app.analyzers.sentiment import (
     SentimentAnalyzer,
-    _resolve_backend,
     _emotional_drift,
     _evolution,
     _evolution_weekly,
     _per_person,
     _recent_shift,
+    _resolve_backend,
     _sample,
 )
 from app.analyzers.sentiment_llm import SentimentLLMError

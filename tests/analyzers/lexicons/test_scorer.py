@@ -24,7 +24,6 @@ from app.analyzers.lexicons.scorer import (
     lexicon_score,
 )
 
-
 # ── Loaders ────────────────────────────────────────────────────────────────
 
 

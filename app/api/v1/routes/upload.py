@@ -4,12 +4,12 @@ from typing import Literal
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile, status
 from pydantic import BaseModel
 
-from app.models.user import User
 from app.core.dependencies import DB, OptionalUserId
 from app.core.ratelimit import UPLOAD_LIMIT, limiter
 from app.models.analysis import Analysis, AnalysisStatus
-from app.services.credits import refund_analysis_credit_async, spend_credit
+from app.models.user import User
 from app.services.access import LOCKED_SECTIONS, build_preview, build_teaser
+from app.services.credits import refund_analysis_credit_async, spend_credit
 from app.workers.tasks import celery_app, process_chat_upload
 
 router = APIRouter()

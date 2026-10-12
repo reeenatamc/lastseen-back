@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import statistics
 from collections import defaultdict
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 
 from app.analyzers.base import AnalysisResult, BaseAnalyzer
 from app.analyzers.lexicons.rupture_es import match_categories

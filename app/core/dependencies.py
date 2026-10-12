@@ -1,4 +1,5 @@
-from typing import TYPE_CHECKING, Annotated, AsyncGenerator
+from collections.abc import AsyncGenerator
+from typing import TYPE_CHECKING, Annotated
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer

@@ -1,7 +1,5 @@
 import json
 
-import pytest
-
 from app.parsers.telegram import TelegramParser
 
 SAMPLE = {

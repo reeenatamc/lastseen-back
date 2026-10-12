@@ -9,7 +9,6 @@ from app.core.config import settings
 from app.models.analysis import Analysis, AnalysisStatus
 from app.models.user import User
 from app.workers import pipeline
-from tests.api.conftest import auth
 from tests.api.test_uploads import CHAT, _Queue, _upload
 
 pytestmark = pytest.mark.asyncio
