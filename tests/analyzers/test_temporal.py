@@ -415,7 +415,7 @@ def _evo(mpd: list[float], silence: list[float | None] | None = None) -> list[di
             "messages_per_day": v,
             "silence_gap_days": s,
         }
-        for i, (v, s) in enumerate(zip(mpd, silence))
+        for i, (v, s) in enumerate(zip(mpd, silence, strict=True))
     ]
 
 
