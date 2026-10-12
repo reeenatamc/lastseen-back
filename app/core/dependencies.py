@@ -41,7 +41,7 @@ async def get_current_user_id(token: str = Depends(oauth2_scheme)) -> int:
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Could not validate credentials",
             headers={"WWW-Authenticate": "Bearer"},
-        )
+        ) from None
 
 
 async def get_optional_user_id(
@@ -61,7 +61,7 @@ async def get_optional_user_id(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Could not validate credentials",
             headers={"WWW-Authenticate": "Bearer"},
-        )
+        ) from None
 
 
 async def get_current_user(
